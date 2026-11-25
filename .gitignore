@@ -1,0 +1,11 @@
+build/
+dist/
+out/
+.vs/
+.vscode/
+.cache/
+*.user
+CMakeUserPresets.json
+*.qm
+*.db-wal
+*.db-shm

@@ -1,0 +1,52 @@
+name: Build Windows (MSVC 2022 + Qt 6.9.1 + FFmpeg 8.1)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt 6.9.1 (MSVC 2022 64-bit)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.9.1'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+          modules: 'qtshadertools'
+          install-deps: 'false'
+
+      - name: Setup MSVC 2022 Developer Environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Ninja & Download FFmpeg 8.1 Shared Dev Build
+        shell: pwsh
+        run: |
+          choco install ninja -y --no-progress
+          $ffUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-gpl-shared-8.1.zip"
+          Invoke-WebRequest -Uri $ffUrl -OutFile ffmpeg.zip
+          Expand-Archive -Path ffmpeg.zip -DestinationPath C:\ffmpeg
+          $ffDir = (Get-ChildItem C:\ffmpeg -Directory | Select-Object -First 1).FullName
+          "FFMPEG_ROOT=$ffDir" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Configure, Build, Test & Package Sonora.exe
+        shell: pwsh
+        run: |
+          $env:QT6_DIR = $env:Qt6_DIR
+          .\scripts\build_windows.ps1 -Qt6Dir $env:QT6_DIR -FFmpegRoot $env:FFMPEG_ROOT
+          Compress-Archive -Path dist\Sonora\* -DestinationPath Sonora-win64-msvc.zip -Force
+
+      - name: Upload Sonora-win64-msvc.zip Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sonora-win64-msvc
+          path: Sonora-win64-msvc.zip

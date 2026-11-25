@@ -1,0 +1,119 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 28,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "windows-msvc-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER": "cl",
+        "CMAKE_PREFIX_PATH": "$env{QT6_DIR}",
+        "FFMPEG_ROOT": "$env{FFMPEG_ROOT}",
+        "SONORA_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "windows-msvc-release",
+      "displayName": "Windows MSVC 2022 Release (Qt 6.9.1 + FFmpeg 8.1)",
+      "inherits": "windows-msvc-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "windows-msvc-debug",
+      "displayName": "Windows MSVC 2022 Debug (Qt 6.9.1 + FFmpeg 8.1)",
+      "inherits": "windows-msvc-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "linux-dev-test",
+      "displayName": "Linux Dev & Automated Tests (Qt 6.9.1 + FFmpeg 8.1)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-dev-test",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_PREFIX_PATH": "/home/antigravity/deps/qt/6.9.1/gcc_64",
+        "FFMPEG_ROOT": "/home/antigravity/deps/ffmpeg-8.1",
+        "SONORA_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "linux-asan",
+      "displayName": "Linux AddressSanitizer & LeakSanitizer",
+      "inherits": "linux-dev-test",
+      "binaryDir": "${sourceDir}/build/linux-asan",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "SONORA_ENABLE_ASAN": "ON"
+      }
+    },
+    {
+      "name": "win64-cross-release",
+      "displayName": "Windows x64 Cross-Compile Release (LLVM-MinGW 17 + Qt 6.9.1 + FFmpeg 8.1)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/win64-cross-release",
+      "toolchainFile": "${sourceDir}/cmake/toolchain-llvm-mingw64.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "QT_HOST_PATH": "/home/antigravity/deps/qt/6.9.1/gcc_64",
+        "CMAKE_PREFIX_PATH": "/home/antigravity/deps/qt-win/6.9.1/llvm-mingw_64",
+        "FFMPEG_ROOT": "/home/antigravity/deps/ffmpeg-8.1-win64",
+        "SONORA_BUILD_TESTS": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-msvc-release",
+      "configurePreset": "windows-msvc-release"
+    },
+    {
+      "name": "windows-msvc-debug",
+      "configurePreset": "windows-msvc-debug"
+    },
+    {
+      "name": "linux-dev-test",
+      "configurePreset": "linux-dev-test"
+    },
+    {
+      "name": "linux-asan",
+      "configurePreset": "linux-asan"
+    },
+    {
+      "name": "win64-cross-release",
+      "configurePreset": "win64-cross-release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "windows-msvc-release",
+      "configurePreset": "windows-msvc-release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "linux-dev-test",
+      "configurePreset": "linux-dev-test",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "linux-asan",
+      "configurePreset": "linux-asan",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}
