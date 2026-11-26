@@ -209,6 +209,87 @@ private slots:
         QCOMPARE(LyricsParser::findActiveLineIndex(lyr, 12000), 2);
     }
 
+    void lyricsParserStripsNumericWordMarkers() {
+        const QString raw = QStringLiteral(
+            "[00:02.00]<13000,11000>Chin<13600,11600>)\n"
+            "[00:14.80]<3500,-3500>你<4850,-650>不<7700,-200>要<8465,3775>那<8877,6177>样\n"
+            "[00:14.80]<+3500 , -3500>Don't look at me like that <3\n"
+            "[00:18.00]<123,0><00:18.00>Word <00:19.00>timing\n");
+
+        const ParsedLyrics parsed = LyricsParser::parse(raw, QStringLiteral("LRC"));
+        QVERIFY(parsed.synced);
+        QCOMPARE(parsed.lines.size(), 3);
+        QCOMPARE(parsed.lines[0].text, QStringLiteral("Chin)"));
+        QCOMPARE(parsed.lines[1].timestampMs, 14800);
+        QCOMPARE(parsed.lines[1].text, QStringLiteral("你不要那样"));
+        QCOMPARE(parsed.lines[1].translation, QStringLiteral("Don't look at me like that <3"));
+        QVERIFY(parsed.lines[1].words.isEmpty());
+        QCOMPARE(parsed.lines[2].text, QStringLiteral("Word timing"));
+        QCOMPARE(parsed.lines[2].words.size(), 2);
+        QCOMPARE(LyricsParser::findActiveLineIndex(parsed, 14799), 0);
+        QCOMPARE(LyricsParser::findActiveLineIndex(parsed, 14800), 1);
+
+        const ParsedLyrics plain = LyricsParser::parse(QStringLiteral("<1200,-500>Plain line"), {});
+        QVERIFY(!plain.synced);
+        QCOMPARE(plain.lines.size(), 1);
+        QCOMPARE(plain.lines[0].text, QStringLiteral("Plain line"));
+    }
+
+    void lyricsParserPairsTranslationsAtLineEnd() {
+        const QString raw = QStringLiteral(
+            "[offset:200]\n"
+            "[00:00.00]<1300,-1300>Song title\n"
+            "[00:10.00]<0,0> <0,0>\n"
+            "[00:10.00]<360,-360>First line\n"
+            "[00:14.00]<0,0>第<0,0>一<0,0>句\n"
+            "[00:14.00]<1250,-1250>Second line\n"
+            "[00:19.00]<0,0>第<0,0>二<0,0>句\n"
+            "[00:19.00]<300,0>Third line\n"
+            "[00:22.00]<0,0>第<0,0>三<0,0>句\n"
+            "[00:22.00]\n"
+            "[00:27.25]Later line\n"
+            "[00:27.25]后面一句\n");
+
+        const auto parsed = LyricsParser::parse(raw);
+        QVERIFY(parsed.synced);
+        QCOMPARE(parsed.offsetMs, 200);
+        QCOMPARE(parsed.lines.size(), 6);
+        QCOMPARE(parsed.lines[0].text, QStringLiteral("Song title"));
+        QCOMPARE(parsed.lines[1].timestampMs, 10000);
+        QCOMPARE(parsed.lines[1].text, QStringLiteral("First line"));
+        QCOMPARE(parsed.lines[1].translation, QStringLiteral("第一句"));
+        QCOMPARE(parsed.lines[2].timestampMs, 14000);
+        QCOMPARE(parsed.lines[2].text, QStringLiteral("Second line"));
+        QCOMPARE(parsed.lines[2].translation, QStringLiteral("第二句"));
+        QCOMPARE(parsed.lines[3].timestampMs, 19000);
+        QCOMPARE(parsed.lines[3].text, QStringLiteral("Third line"));
+        QCOMPARE(parsed.lines[3].translation, QStringLiteral("第三句"));
+        QCOMPARE(parsed.lines[4].timestampMs, 22000);
+        QVERIFY(parsed.lines[4].text.isEmpty());
+        QCOMPARE(parsed.lines[5].text, QStringLiteral("Later line"));
+        QCOMPARE(parsed.lines[5].translation, QStringLiteral("后面一句"));
+        QCOMPARE(LyricsParser::findActiveLineIndex(parsed, 13799), 1);
+        QCOMPARE(LyricsParser::findActiveLineIndex(parsed, 13800), 2);
+    }
+
+    void lyricsParserPreservesOrdinarySameTimestampPairsWithNumericMarkers() {
+        const auto parsed = LyricsParser::parse(QStringLiteral(
+            "[00:10.00]<120,0>Title\n"
+            "[00:14.00]<0,0>第一句\n"
+            "[00:14.00]<1300,-1300>First line\n"
+            "[00:19.00]<0,0>第二句\n"
+            "[00:19.00]<420,0>Second line\n"
+            "[00:21.00]\n"));
+
+        QCOMPARE(parsed.lines.size(), 4);
+        QVERIFY(parsed.lines[0].translation.isEmpty());
+        QCOMPARE(parsed.lines[1].timestampMs, 14000);
+        QCOMPARE(parsed.lines[1].text, QStringLiteral("第一句"));
+        QCOMPARE(parsed.lines[1].translation, QStringLiteral("First line"));
+        QCOMPARE(parsed.lines[2].text, QStringLiteral("第二句"));
+        QCOMPARE(parsed.lines[2].translation, QStringLiteral("Second line"));
+    }
+
     void m3u8ExportImportRoundTrip() {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
@@ -232,6 +313,53 @@ private slots:
         QCOMPARE(loaded[0].filePath, QDir::cleanPath(a.filePath));
         QCOMPARE(loaded[0].durationSeconds, 269);
         QCOMPARE(loaded[1].filePath, QDir::cleanPath(b.filePath));
+    }
+
+    void manualRescanFindsAddedCoverAndRepairsCache() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QVERIFY(writeTinyWav(dir.filePath(QStringLiteral("song.wav")), 44100, 0.1));
+
+        const QString cacheDir = dir.filePath(QStringLiteral("cache"));
+        LibraryDatabase db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        CoverArtProvider covers(cacheDir);
+        LibraryScanner scanner(&db, &covers);
+        const QStringList folders{dir.path()};
+        QCOMPARE(scanner.scanSynchronously(folders), 1);
+        const auto initial = db.queryTracks();
+        QCOMPARE(initial.size(), 1);
+        QVERIFY(initial.first().coverHash.isEmpty());
+        QVERIFY(db.setFavorite(initial.first().id, true));
+
+        QFile brokenCover(dir.filePath(QStringLiteral("cover.jpg")));
+        QVERIFY(brokenCover.open(QIODevice::WriteOnly));
+        QCOMPARE(brokenCover.write("bad", 3), 3);
+        brokenCover.close();
+        QFile matchingCover(dir.filePath(QStringLiteral("song.png")));
+        QVERIFY(matchingCover.open(QIODevice::WriteOnly));
+        const QByteArray art = makeSolidPng(Qt::blue);
+        QCOMPARE(matchingCover.write(art), art.size());
+        matchingCover.close();
+
+        QCOMPARE(scanner.scanSynchronously(folders), 0);
+        QCOMPARE(scanner.scanSynchronously(folders, true), 1);
+        const auto refreshed = db.queryTracks();
+        QCOMPARE(refreshed.size(), 1);
+        QCOMPARE(refreshed.first().id, initial.first().id);
+        QVERIFY(refreshed.first().isFavorite);
+        const QString hash = refreshed.first().coverHash;
+        QVERIFY(!hash.isEmpty());
+        QVERIFY(!covers.loadCover(hash).isNull());
+
+        QFile cachedCover(QDir(cacheDir).filePath(hash + QStringLiteral(".jpg")));
+        QVERIFY(cachedCover.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        QCOMPARE(cachedCover.write("bad", 3), 3);
+        cachedCover.close();
+        covers.clearRamCache();
+        QVERIFY(covers.loadCover(hash).isNull());
+        QCOMPARE(scanner.scanSynchronously(folders, true), 1);
+        QVERIFY(!covers.loadCover(hash).isNull());
     }
 
     void coverArtProviderStrictRamLruCap() {

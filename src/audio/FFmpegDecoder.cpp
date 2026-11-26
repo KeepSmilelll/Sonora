@@ -159,7 +159,7 @@ bool parseDbValue(const QString& text, double& outDb) {
 }
 
 void extractReplayGain(const AVFormatContext* fmtCtx, const AVStream* stream, TrackInfo& info) {
-    // Priority 1: FFmpeg 7+/8+ stream coded_side_data AV_PKT_DATA_REPLAYGAIN
+    // Priority 1: FFmpeg 7+/8+/9+ stream coded_side_data AV_PKT_DATA_REPLAYGAIN
     if (stream && stream->codecpar && stream->codecpar->coded_side_data) {
         const AVPacketSideData* sd = av_packet_side_data_get(
             stream->codecpar->coded_side_data,

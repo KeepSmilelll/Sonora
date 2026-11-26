@@ -43,7 +43,10 @@
 </context>
 <context>
     <name>QueueDrawer</name>
-    <message><source>Play Queue (%1)</source><translation>播放队列 (%1)</translation></message>
+    <message><source>Play Queue</source><translation>播放队列</translation></message>
+    <message><source>%1 track(s)</source><translation>%1 首</translation></message>
+    <message><source>Now Playing</source><translation>正在播放</translation></message>
+    <message><source>Up Next</source><translation>接下来</translation></message>
     <message><source>Clear</source><translation>清空</translation></message>
     <message><source>Unknown Artist</source><translation>未知歌手</translation></message>
     <message><source>Queue is empty
@@ -52,6 +55,10 @@ Drop audio files anywhere to start listening</source><translation>播放队列�
 </context>
 <context>
     <name>TracksView</name>
+    <message><source>Now Playing</source><translation>正在播放</translation></message>
+    <message><source>View Lyrics</source><translation>查看歌词</translation></message>
+    <message><source>Add to Favorites</source><translation>收藏曲目</translation></message>
+    <message><source>Remove from Favorites</source><translation>取消收藏</translation></message>
     <message><source>All Tracks</source><translation>全部歌曲</translation></message>
     <message><source>Scanning library... (%1 / %2)</source><translation>正在扫描曲库… (%1 / %2)</translation></message>
     <message><source>%1 track(s)</source><translation>共 %1 首曲目</translation></message>
@@ -99,6 +106,9 @@ Drop audio files anywhere to start listening</source><translation>播放队列�
 </context>
 <context>
     <name>NowPlayingOverlay</name>
+    <message><source>Now Playing</source><translation>正在播放</translation></message>
+    <message><source>Synced Lyrics</source><translation>同步歌词</translation></message>
+    <message><source>Lyrics</source><translation>歌词</translation></message>
     <message><source>No Lyrics Available</source><translation>暂无歌词</translation></message>
     <message><source>Place a matching .lrc file next to the audio file or embed USLT/LYRICS tags.</source><translation>请将同名 .lrc 歌词放在音频同目录，或使用内嵌 USLT / LYRICS 标签。</translation></message>
 </context>

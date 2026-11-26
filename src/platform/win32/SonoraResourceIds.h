@@ -1,0 +1,6 @@
+#ifndef SONORA_RESOURCE_IDS_H
+#define SONORA_RESOURCE_IDS_H
+
+#define IDI_SONORA_APP 101
+
+#endif

@@ -11,6 +11,44 @@ namespace sonora {
 
 namespace {
 
+enum class InlineTiming { None, ZeroMarkers, TimedWords };
+
+struct TimedLyric {
+    LyricLine line;
+    InlineTiming timing;
+};
+
+qsizetype endTimedTranslationRun(const QVector<TimedLyric>& lines, qsizetype start) {
+    if (start + 3 >= lines.size()) return -1;
+    const auto& opening = lines[start];
+    const auto& first = lines[start + 1];
+    if (opening.timing != InlineTiming::ZeroMarkers || !opening.line.text.isEmpty()
+        || first.timing != InlineTiming::TimedWords || first.line.text.isEmpty()
+        || opening.line.timestampMs != first.line.timestampMs
+        || (start > 0 && lines[start - 1].line.timestampMs == opening.line.timestampMs)) {
+        return -1;
+    }
+
+    // A translation at the end of an original line shares the next line's start timestamp.
+    for (qsizetype index = start + 2; index + 1 < lines.size(); index += 2) {
+        const auto& translation = lines[index];
+        const auto& following = lines[index + 1];
+        if (translation.timing != InlineTiming::ZeroMarkers || translation.line.text.isEmpty()
+            || translation.line.timestampMs <= lines[index - 1].line.timestampMs
+            || translation.line.timestampMs != following.line.timestampMs) {
+            break;
+        }
+        if (following.line.text.isEmpty()) {
+            // Require at least one intervening translation/original pair and a closing blank.
+            const bool lastAtTimestamp = index + 2 == lines.size()
+                || lines[index + 2].line.timestampMs != following.line.timestampMs;
+            return index > start + 2 && lastAtTimestamp ? index : -1;
+        }
+        if (following.timing != InlineTiming::TimedWords) break;
+    }
+    return -1;
+}
+
 int64_t parseTimeTagMs(const QString& minStr, const QString& secStr, const QString& fracStr) {
     const int64_t mins = minStr.toLongLong();
     const int64_t secs = secStr.toLongLong();
@@ -63,16 +101,33 @@ ParsedLyrics LyricsParser::parse(const QString& rawText, const QString& sourceLa
         return result;
     }
 
+    // Some LRC files carry separate numeric word markers inside each timed line.
+    static const QRegularExpression kInlineWordMarker(QStringLiteral("<([+-]?\\d+)\\s*,\\s*([+-]?\\d+)>"));
     static const QRegularExpression kLineTagRe(QStringLiteral("\\[(\\d{1,3}):(\\d{2})(?:[.:](\\d{1,3}))?\\]"));
     static const QRegularExpression kOffsetRe(QStringLiteral("^\\[offset:\\s*([+-]?\\d+)\\s*\\]$"), QRegularExpression::CaseInsensitiveOption);
     static const QRegularExpression kMetaTagRe(QStringLiteral("^\\[(ti|ar|al|by|re|ve|length):.*\\]$"), QRegularExpression::CaseInsensitiveOption);
 
-    QVector<LyricLine> timedLines;
+    QVector<TimedLyric> timedLines;
     QVector<LyricLine> plainLines;
 
     const QStringList rows = rawText.split(QRegularExpression(QStringLiteral("\\r?\\n")));
     for (const QString& rawRow : rows) {
-        const QString row = rawRow.trimmed();
+        QString row = rawRow.trimmed();
+        InlineTiming timing = InlineTiming::None;
+        auto markers = kInlineWordMarker.globalMatch(row);
+        while (markers.hasNext()) {
+            const auto marker = markers.next();
+            bool firstOk = false;
+            bool secondOk = false;
+            const auto first = marker.captured(1).toLongLong(&firstOk);
+            const auto second = marker.captured(2).toLongLong(&secondOk);
+            if (!firstOk || !secondOk || first != 0 || second != 0) {
+                timing = InlineTiming::TimedWords;
+                break;
+            }
+            timing = InlineTiming::ZeroMarkers;
+        }
+        if (timing != InlineTiming::None) row = row.remove(kInlineWordMarker).trimmed();
         if (row.isEmpty()) continue;
 
         if (auto om = kOffsetRe.match(row); om.hasMatch()) {
@@ -101,7 +156,7 @@ ParsedLyrics LyricsParser::parse(const QString& rawText, const QString& sourceLa
                 line.timestampMs = ts;
                 line.text = cleanText;
                 line.words = words;
-                timedLines.push_back(std::move(line));
+                timedLines.push_back({std::move(line), timing});
             }
         } else {
             LyricLine plain;
@@ -114,12 +169,24 @@ ParsedLyrics LyricsParser::parse(const QString& rawText, const QString& sourceLa
     if (!timedLines.isEmpty()) {
         result.synced = true;
         // Stable sort preserves original order so dual-language lines sharing a timestamp stay paired
-        std::stable_sort(timedLines.begin(), timedLines.end(), [](const LyricLine& a, const LyricLine& b) {
-            return a.timestampMs < b.timestampMs;
+        std::stable_sort(timedLines.begin(), timedLines.end(), [](const TimedLyric& a, const TimedLyric& b) {
+            return a.line.timestampMs < b.line.timestampMs;
         });
 
-        // Merge identical-timestamp lines into primary text + translation
-        for (auto& line : timedLines) {
+        for (qsizetype index = 0; index < timedLines.size();) {
+            const qsizetype end = endTimedTranslationRun(timedLines, index);
+            if (end >= 0) {
+                for (qsizetype original = index + 1; original < end; original += 2) {
+                    auto& line = timedLines[original].line;
+                    line.translation = std::move(timedLines[original + 1].line.text);
+                    result.lines.push_back(std::move(line));
+                }
+                index = end + 1;
+                continue;
+            }
+
+            // Ordinary LRC translations share the original line's start timestamp.
+            auto& line = timedLines[index++].line;
             if (!result.lines.isEmpty()
                 && result.lines.last().timestampMs == line.timestampMs
                 && !line.text.isEmpty()

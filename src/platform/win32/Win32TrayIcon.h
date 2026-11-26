@@ -1,6 +1,7 @@
 #pragma once
 
-#ifdef _WIN32
+#include <QtGlobal>
+#if defined(_WIN32) || defined(Q_OS_WIN)
 
 #include <QAbstractNativeEventFilter>
 #include <QObject>
@@ -36,12 +37,15 @@ signals:
     void quitRequested();
 
 private:
+    bool addTrayIcon();
     void showContextMenu();
 
     uintptr_t hwnd_ = 0;
+    uint32_t taskbarCreatedMsg_ = 0;
     bool active_ = false;
     bool playing_ = false;
     bool filterInstalled_ = false;
+    bool menuOpen_ = false;
     QString tooltip_ = QStringLiteral("Sonora");
 };
 

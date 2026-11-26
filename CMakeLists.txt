@@ -152,10 +152,11 @@ if(WIN32)
         target_link_libraries(sonora_core PUBLIC runtimeobject)
     endif()
     target_compile_definitions(sonora_core PUBLIC UNICODE _UNICODE NOMINMAX)
+    set_target_properties(sonora_core PROPERTIES AUTOMOC_MOC_OPTIONS "-D_WIN32")
 endif()
 
 if(MSVC)
-    target_compile_options(sonora_core PRIVATE /W4 /permissive- /utf-8)
+    target_compile_options(sonora_core PRIVATE /W4 /wd4324 /permissive- /utf-8)
 else()
     target_compile_options(sonora_core PRIVATE -Wall -Wextra)
 endif()
@@ -164,10 +165,18 @@ endif()
 set(SONORA_APP_SOURCES src/main.cpp)
 if(WIN32)
     list(APPEND SONORA_APP_SOURCES resources/sonora.rc)
+    set_property(SOURCE resources/sonora.rc APPEND PROPERTY OBJECT_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/resources/sonora.ico"
+    )
 endif()
 
 qt_add_executable(sonora
     ${SONORA_APP_SOURCES}
+)
+
+qt_add_resources(sonora "sonora_app_icon"
+    PREFIX "/"
+    FILES resources/sonora.ico
 )
 
 set_source_files_properties(qml/theme/DesignTokens.qml PROPERTIES
@@ -183,6 +192,12 @@ qt_add_qml_module(sonora
         qml/components/IconGlyph.qml
         qml/components/AmbientBackdrop.qml
         qml/components/FormatBadge.qml
+        qml/components/GlassPanel.qml
+        qml/components/SonoraButton.qml
+        qml/components/SonoraSwitch.qml
+        qml/components/SonoraSlider.qml
+        qml/components/SonoraComboBox.qml
+        qml/components/NowPlayingBars.qml
         qml/components/TitleBar.qml
         qml/components/Sidebar.qml
         qml/components/PlaybackBar.qml
@@ -245,11 +260,36 @@ if(SONORA_BUILD_TESTS)
             set_target_properties(${test_name} PROPERTIES BUILD_RPATH "${FFMPEG_ROOT}/lib")
         endif()
         add_test(NAME ${test_name} COMMAND ${test_name})
+        if(WIN32)
+            set(_test_path_mods "")
+            if(FFMPEG_BIN_DIR)
+                list(APPEND _test_path_mods "PATH=path_list_prepend:${FFMPEG_BIN_DIR}")
+            endif()
+            list(APPEND _test_path_mods "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+            set_tests_properties(${test_name} PROPERTIES ENVIRONMENT_MODIFICATION "${_test_path_mods}")
+        endif()
     endfunction()
 
     sonora_add_test(test_ring_buffer tests/test_ring_buffer.cpp)
     sonora_add_test(test_text_encoding tests/test_text_encoding.cpp)
     sonora_add_test(test_ffmpeg_decoder tests/test_ffmpeg_decoder.cpp)
+    if(FFMPEG_EXECUTABLE)
+        target_compile_definitions(test_ffmpeg_decoder PRIVATE
+            SONORA_FFMPEG_EXECUTABLE="${FFMPEG_EXECUTABLE}"
+        )
+    endif()
+    if(FFMPEG_BIN_DIR)
+        target_compile_definitions(test_ffmpeg_decoder PRIVATE
+            SONORA_FFMPEG_BIN_DIR="${FFMPEG_BIN_DIR}"
+        )
+    endif()
+    if(WIN32 AND FFMPEG_RUNTIME_DLLS)
+        foreach(_dll ${FFMPEG_RUNTIME_DLLS})
+            add_custom_command(TARGET test_ffmpeg_decoder POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_dll}" "$<TARGET_FILE_DIR:test_ffmpeg_decoder>"
+            )
+        endforeach()
+    endif()
     sonora_add_test(test_library_and_parsers tests/test_library_and_parsers.cpp)
     sonora_add_test(test_dsp_and_fft tests/test_dsp_and_fft.cpp)
 endif()

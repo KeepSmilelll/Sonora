@@ -61,9 +61,8 @@ QSGNode* EqCurveItem::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
         rootNode->appendChildNode(fillNode);
 
         lineNode = new QSGGeometryNode();
-        auto* lineGeom = new QSGGeometry(QSGGeometry::defaultAttributes_Point2D(), kPoints);
-        lineGeom->setDrawingMode(QSGGeometry::DrawLineStrip);
-        lineGeom->setLineWidth(2.0f);
+        auto* lineGeom = new QSGGeometry(QSGGeometry::defaultAttributes_Point2D(), kPoints * 2);
+        lineGeom->setDrawingMode(QSGGeometry::DrawTriangleStrip);
         lineNode->setGeometry(lineGeom);
         lineNode->setFlag(QSGNode::OwnsGeometry);
         auto* mat = new QSGFlatColorMaterial();
@@ -95,18 +94,32 @@ QSGNode* EqCurveItem::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
     const auto fb = static_cast<unsigned char>(lineColor_.blue() * fillAlpha);
     const auto fa = static_cast<unsigned char>(255 * fillAlpha);
 
+    float xs[kPoints];
+    float ys[kPoints];
     for (int i = 0; i < kPoints; ++i) {
         const double t = static_cast<double>(i) / static_cast<double>(kPoints - 1);
-        const float x = static_cast<float>(t) * w;
+        xs[i] = static_cast<float>(t) * w;
         double db = 0.0;
         if (sharedEngine_) {
             const double fHz = kMinHz * std::exp(logRatio * t);
             db = std::clamp(sharedEngine_->equalizer().magnitudeDbAt(fHz), -15.0, 15.0);
         }
-        const float y = midY - static_cast<float>(db / 15.0) * (midY - 8.0f);
-        lv[i].set(x, y);
-        fv[i * 2 + 0].set(x, y, fr, fg, fb, fa);
-        fv[i * 2 + 1].set(x, midY, 0, 0, 0, 0);
+        ys[i] = midY - static_cast<float>(db / 15.0) * (midY - 8.0f);
+        fv[i * 2 + 0].set(xs[i], ys[i], fr, fg, fb, fa);
+        fv[i * 2 + 1].set(xs[i], midY, 0, 0, 0, 0);
+    }
+
+    constexpr float kHalfStroke = 1.2f;
+    for (int i = 0; i < kPoints; ++i) {
+        const int i0 = std::max(0, i - 1);
+        const int i1 = std::min(kPoints - 1, i + 1);
+        float dx = xs[i1] - xs[i0];
+        float dy = ys[i1] - ys[i0];
+        const float len = std::max(1e-4f, std::hypot(dx, dy));
+        const float nx = -dy / len * kHalfStroke;
+        const float ny =  dx / len * kHalfStroke;
+        lv[i * 2 + 0].set(xs[i] + nx, ys[i] + ny);
+        lv[i * 2 + 1].set(xs[i] - nx, ys[i] - ny);
     }
 
     fillNode->markDirty(QSGNode::DirtyGeometry);

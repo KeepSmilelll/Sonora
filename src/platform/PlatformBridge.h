@@ -4,7 +4,10 @@
 
 #include <QImage>
 #include <QObject>
+#include <QRectF>
 #include <QString>
+#include <QVariantList>
+#include <QVector>
 #include <memory>
 
 class QWindow;
@@ -13,15 +16,31 @@ namespace sonora {
 
 class PlatformBridge : public QObject {
     Q_OBJECT
+    Q_PROPERTY(bool quitting READ isQuitting NOTIFY quittingChanged)
 
 public:
     explicit PlatformBridge(QObject* parent = nullptr) : QObject(parent) {}
     ~PlatformBridge() override = default;
 
+    bool isQuitting() const noexcept { return quitting_; }
+    void markQuitting() {
+        if (!quitting_) {
+            quitting_ = true;
+            emit quittingChanged();
+        }
+    }
+    Q_INVOKABLE void requestQuit() {
+        markQuitting();
+        emit quitRequested();
+    }
+
     // Attaches native frameless window handling (Aero Snap, shadows, DWM Mica/Acrylic)
     virtual void attachMainWindow(QWindow* window, int titleBarHeightPx = 42) = 0;
     virtual void setWindowBackdrop(QWindow* window, const QString& backdropMode, bool isDark) = 0;
     virtual void setTitleBarHeight(int heightPx) = 0;
+    Q_INVOKABLE virtual void setTitleBarDragEnabled(bool enabled) { Q_UNUSED(enabled); }
+    Q_INVOKABLE virtual void setTitleBarInteractiveRects(const QVariantList& rects) { Q_UNUSED(rects); }
+    Q_INVOKABLE virtual void toggleMaximize(QWindow* window);
 
     // System Tray (Phase 3 Win32 Shell_NotifyIconW; no-op stub on Linux)
     virtual void initTray(const QString& tooltip) { Q_UNUSED(tooltip); }
@@ -58,6 +77,10 @@ signals:
     void toggleMiniModeRequested();
     void showMainWindowRequested();
     void quitRequested();
+    void quittingChanged();
+
+private:
+    bool quitting_ = false;
 };
 
 } // namespace sonora

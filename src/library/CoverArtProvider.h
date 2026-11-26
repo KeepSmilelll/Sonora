@@ -4,6 +4,7 @@
 #include <QImage>
 #include <QQuickAsyncImageProvider>
 #include <QString>
+#include <QStringList>
 #include <QThreadPool>
 #include <mutex>
 
@@ -23,6 +24,8 @@ public:
     // Extracts (embedded -> folder cover) and caches a 420px JPEG thumbnail on disk.
     // Returns stable 16-char hex coverHash, or empty string if no cover found.
     QString indexCoverForAudioFile(const QString& audioFilePath);
+
+    static QStringList folderCoverPaths(const QString& audioFilePath);
 
     // Synchronous read from RAM LRU or disk thumbnail cache (used by ThemeManager / SMTC / tests)
     QImage loadCover(const QString& coverHash, int targetSize = 360);

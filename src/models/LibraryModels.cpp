@@ -522,7 +522,7 @@ void LibraryController::removeWatchedFolder(const QString& folderPath) {
 
 void LibraryController::rescanLibrary() {
     if (scanner_ && settings_ && !settings_->libraryFolders().isEmpty()) {
-        scanner_->startScan(settings_->libraryFolders());
+        scanner_->startScan(settings_->libraryFolders(), true);
     }
 }
 

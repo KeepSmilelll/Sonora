@@ -1,22 +1,20 @@
 import QtQuick
 import QtQuick.Layouts
-import QtQuick.Controls
 import Sonora.UI
 
-// 10-band Parametric Equalizer + Real-time GPU Curve + Quick Audio DSP Drawer (lazy-loaded)
-Rectangle {
+// 10-band Parametric Equalizer + Real-time GPU Curve + Quick Audio DSP Spatial Drawer
+GlassPanel {
     id: root
 
     required property var controller
     required property var settingsObj
     signal closeRequested()
 
-    width: 480
-    height: 410
+    implicitWidth: 536
+    implicitHeight: 404
     radius: DesignTokens.radiusXl
-    color: DesignTokens.surfaceElevated
-    border.width: 1
-    border.color: DesignTokens.borderHighlight
+    elevated: true
+    shadowEnabled: true
 
     property int eqRev: 0
     readonly property var bandLabels: ["31", "62", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"]
@@ -25,6 +23,9 @@ Rectangle {
         target: root.controller
         function onEqCurveChanged() { root.eqRev += 1 }
     }
+
+    // Consume clicks inside the drawer so click-outside catcher does not dismiss it
+    MouseArea { anchors.fill: parent }
 
     ColumnLayout {
         anchors.fill: parent
@@ -35,6 +36,14 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 10
 
+            Rectangle {
+                implicitWidth: 30
+                implicitHeight: 30
+                radius: 9
+                color: DesignTokens.accentSoft
+                IconGlyph { anchors.centerIn: parent; name: "eq"; size: 15; color: DesignTokens.accent }
+            }
+
             Text {
                 text: qsTr("Equalizer & DSP")
                 color: DesignTokens.textPrimary
@@ -43,16 +52,16 @@ Rectangle {
                 font.weight: Font.Bold
             }
 
-            Switch {
+            SonoraSwitch {
                 checked: root.settingsObj.eqEnabled
-                onToggled: root.settingsObj.eqEnabled = checked
+                onToggled: (state) => root.settingsObj.eqEnabled = state
             }
 
             Item { Layout.fillWidth: true }
 
-            ComboBox {
+            SonoraComboBox {
                 id: presetBox
-                Layout.preferredWidth: 132
+                Layout.preferredWidth: 148
                 model: root.controller.eqPresets
                 textRole: "name"
                 onActivated: (idx) => {
@@ -62,11 +71,24 @@ Rectangle {
             }
 
             Rectangle {
-                implicitWidth: 26; implicitHeight: 26; radius: 7
+                implicitWidth: 28
+                implicitHeight: 28
+                radius: 8
                 color: closeMa.containsMouse ? DesignTokens.surfaceHover : "transparent"
-                IconGlyph { anchors.centerIn: parent; name: "close"; size: 12; color: DesignTokens.textSecondary }
+                scale: closeMa.pressed ? 0.90 : 1.0
+                Behavior on scale { NumberAnimation { duration: 120 } }
+
+                IconGlyph {
+                    anchors.centerIn: parent
+                    name: "close"
+                    size: 13
+                    color: closeMa.containsMouse ? DesignTokens.textPrimary : DesignTokens.textSecondary
+                }
                 MouseArea {
-                    id: closeMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                    id: closeMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
                     onClicked: root.closeRequested()
                 }
             }
@@ -75,19 +97,34 @@ Rectangle {
         // GPU Frequency Response Curve Preview
         Rectangle {
             Layout.fillWidth: true
-            implicitHeight: 92
-            radius: 10
-            color: DesignTokens.surfaceCard
+            implicitHeight: 88
+            radius: 12
+            color: DesignTokens.surfaceInput
             border.width: 1
-            border.color: DesignTokens.borderSubtle
+            border.color: DesignTokens.borderOuter
             clip: true
 
-            // 0 dB center reference line
+            // +6 / 0 / -6 dB reference hairlines
+            Rectangle {
+                anchors.left: parent.left; anchors.right: parent.right
+                y: Math.round(parent.height * 0.25)
+                height: 1
+                color: DesignTokens.borderSubtle
+                opacity: 0.55
+            }
             Rectangle {
                 anchors.left: parent.left; anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 height: 1
+                color: DesignTokens.borderHighlight
+                opacity: 0.65
+            }
+            Rectangle {
+                anchors.left: parent.left; anchors.right: parent.right
+                y: Math.round(parent.height * 0.75)
+                height: 1
                 color: DesignTokens.borderSubtle
+                opacity: 0.55
             }
 
             EqCurveItem {
@@ -97,18 +134,24 @@ Rectangle {
             }
 
             Text {
-                anchors.left: parent.left; anchors.top: parent.top; anchors.margins: 6
-                text: "+12 dB"; color: DesignTokens.textTertiary
-                font.family: DesignTokens.fontFamily; font.pixelSize: 10
+                anchors.left: parent.left; anchors.top: parent.top; anchors.margins: 7
+                text: "+12 dB"
+                color: DesignTokens.textTertiary
+                font.family: DesignTokens.fontFamily
+                font.pixelSize: 10
+                font.features: ({ "tnum": 1 })
             }
             Text {
-                anchors.left: parent.left; anchors.bottom: parent.bottom; anchors.margins: 6
-                text: "-12 dB"; color: DesignTokens.textTertiary
-                font.family: DesignTokens.fontFamily; font.pixelSize: 10
+                anchors.left: parent.left; anchors.bottom: parent.bottom; anchors.margins: 7
+                text: "-12 dB"
+                color: DesignTokens.textTertiary
+                font.family: DesignTokens.fontFamily
+                font.pixelSize: 10
+                font.features: ({ "tnum": 1 })
             }
         }
 
-        // 10-band vertical sliders
+        // 10-band vertical bipolar spatial sliders
         RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -128,22 +171,25 @@ Rectangle {
 
                     Text {
                         Layout.alignment: Qt.AlignHCenter
-                        text: (bandCol.bandVal >= 0 ? "+" : "") + bandCol.bandVal.toFixed(0)
-                        color: Math.abs(bandCol.bandVal) > 0.1 ? DesignTokens.accent : DesignTokens.textTertiary
+                        text: (bandCol.bandVal > 0.05 ? "+" : "") + bandCol.bandVal.toFixed(1)
+                        color: Math.abs(bandCol.bandVal) > 0.05 ? DesignTokens.accent : DesignTokens.textTertiary
                         font.family: DesignTokens.fontFamily
                         font.pixelSize: 10
+                        font.weight: Math.abs(bandCol.bandVal) > 0.05 ? Font.DemiBold : Font.Normal
+                        font.features: ({ "tnum": 1 })
                     }
 
-                    Slider {
+                    SonoraSlider {
                         Layout.alignment: Qt.AlignHCenter
                         Layout.fillHeight: true
                         orientation: Qt.Vertical
+                        bipolar: true
                         from: -12.0
                         to: 12.0
                         stepSize: 0.5
                         value: bandCol.bandVal
                         enabled: root.settingsObj.eqEnabled
-                        onMoved: root.settingsObj.setEqBandGain(bandCol.index, value)
+                        onMoved: (v) => root.settingsObj.setEqBandGain(bandCol.index, v)
                     }
 
                     Text {
@@ -152,44 +198,48 @@ Rectangle {
                         color: DesignTokens.textSecondary
                         font.family: DesignTokens.fontFamily
                         font.pixelSize: 10
+                        font.weight: Font.Medium
                     }
                 }
             }
         }
 
-        // Bottom strip: Preamp + ReplayGain quick toggle + WASAPI Exclusive indicator
+        // Bottom strip: Bipolar Preamp slider + Reset Flat button
         RowLayout {
             Layout.fillWidth: true
             spacing: 12
 
             Text {
-                text: qsTr("Preamp: %1 dB").arg(root.settingsObj.eqPreampDb.toFixed(1))
+                Layout.preferredWidth: 102
+                text: qsTr("Preamp: %1%2 dB")
+                    .arg(root.settingsObj.eqPreampDb > 0.05 ? "+" : "")
+                    .arg(root.settingsObj.eqPreampDb.toFixed(1))
                 color: DesignTokens.textSecondary
                 font.family: DesignTokens.fontFamily
                 font.pixelSize: 11
+                font.weight: Font.Medium
+                font.features: ({ "tnum": 1 })
             }
 
-            Slider {
-                Layout.preferredWidth: 110
-                from: -12.0; to: 12.0; stepSize: 0.5
+            SonoraSlider {
+                Layout.preferredWidth: 136
+                bipolar: true
+                from: -12.0
+                to: 12.0
+                stepSize: 0.5
                 value: root.settingsObj.eqPreampDb
                 enabled: root.settingsObj.eqEnabled
-                onMoved: root.settingsObj.eqPreampDb = value
+                onMoved: (v) => root.settingsObj.eqPreampDb = v
             }
 
             Item { Layout.fillWidth: true }
 
-            Rectangle {
-                implicitHeight: 26; implicitWidth: flatLbl.implicitWidth + 16; radius: 13
-                color: flatMa.containsMouse ? DesignTokens.surfaceHover : DesignTokens.surfaceCard
-                border.width: 1; border.color: DesignTokens.borderSubtle
-                Text {
-                    id: flatLbl; anchors.centerIn: parent; text: qsTr("Reset Flat")
-                    color: DesignTokens.textPrimary; font.family: DesignTokens.fontFamily; font.pixelSize: 11
-                }
-                MouseArea {
-                    id: flatMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                    onClicked: root.settingsObj.applyEqPreset("flat")
+            SonoraButton {
+                compact: true
+                text: qsTr("Reset Flat")
+                onClicked: {
+                    presetBox.currentIndex = 0
+                    root.settingsObj.applyEqPreset("flat")
                 }
             }
         }

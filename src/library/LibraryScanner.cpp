@@ -21,7 +21,9 @@ LibraryScanner::LibraryScanner(LibraryDatabase* db, CoverArtProvider* covers, QO
     debounceTimer_.setSingleShot(true);
     debounceTimer_.setInterval(1500);
     connect(&debounceTimer_, &QTimer::timeout, this, [this]() {
-        if (!watchedFolders_.isEmpty()) {
+        if (isScanning()) {
+            debounceTimer_.start();
+        } else if (!watchedFolders_.isEmpty()) {
             startScan(watchedFolders_);
         }
     });
@@ -54,7 +56,8 @@ void LibraryScanner::cancelScan() {
     scanning_.store(false, std::memory_order_release);
 }
 
-void LibraryScanner::startScan(const QStringList& folders) {
+void LibraryScanner::startScan(const QStringList& folders, bool forceRefresh) {
+    debounceTimer_.stop();
     cancelScan();
     cancel_.store(false, std::memory_order_release);
     scanning_.store(true, std::memory_order_release);
@@ -64,8 +67,8 @@ void LibraryScanner::startScan(const QStringList& folders) {
     emit progressChanged();
 
     const QStringList foldersCopy = folders;
-    worker_ = std::thread([this, foldersCopy]() {
-        const int totalIndexed = runScanWork(foldersCopy);
+    worker_ = std::thread([this, foldersCopy, forceRefresh]() {
+        const int totalIndexed = runScanWork(foldersCopy, forceRefresh);
         scanning_.store(false, std::memory_order_release);
         QMetaObject::invokeMethod(this, [this, totalIndexed]() {
             emit scanningChanged();
@@ -74,12 +77,12 @@ void LibraryScanner::startScan(const QStringList& folders) {
     });
 }
 
-int LibraryScanner::scanSynchronously(const QStringList& folders) {
+int LibraryScanner::scanSynchronously(const QStringList& folders, bool forceRefresh) {
     cancel_.store(false, std::memory_order_release);
-    return runScanWork(folders);
+    return runScanWork(folders, forceRefresh);
 }
 
-int LibraryScanner::runScanWork(const QStringList& folders) {
+int LibraryScanner::runScanWork(const QStringList& folders, bool forceRefresh) {
     if (!db_ || !db_->isOpen()) return 0;
 
     // 1. Collect all .cue and supported audio files across watched folders
@@ -176,7 +179,8 @@ int LibraryScanner::runScanWork(const QStringList& folders) {
         const int64_t fsize = fi.size();
 
         const auto it = existingIndex.constFind(audioPath);
-        if (it != existingIndex.constEnd() && it.value().first == mtime && it.value().second == fsize) {
+        if (!forceRefresh && it != existingIndex.constEnd()
+            && it.value().first == mtime && it.value().second == fsize) {
             ++processed;
             scannedCount_.store(processed, std::memory_order_release);
             continue;

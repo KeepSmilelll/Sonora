@@ -1,8 +1,10 @@
 #ifdef _WIN32
 
 #include "platform/win32/Win32TrayIcon.h"
+#include "platform/win32/SonoraResourceIds.h"
 
 #include <QCoreApplication>
+#include <QMetaObject>
 #include <QWindow>
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -44,9 +46,8 @@ void Win32TrayIcon::attachWindow(QWindow* window) {
     }
 }
 
-void Win32TrayIcon::init(const QString& tooltip) {
-    tooltip_ = tooltip.left(120);
-    if (!hwnd_ || active_) return;
+bool Win32TrayIcon::addTrayIcon() {
+    if (!hwnd_) return false;
 
     NOTIFYICONDATAW nid{};
     nid.cbSize = sizeof(NOTIFYICONDATAW);
@@ -54,7 +55,13 @@ void Win32TrayIcon::init(const QString& tooltip) {
     nid.uID = kTrayIconId;
     nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     nid.uCallbackMessage = kTrayCallbackMsg;
-    nid.hIcon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(101));
+    const HMODULE module = GetModuleHandleW(nullptr);
+    nid.hIcon = static_cast<HICON>(LoadImageW(module, MAKEINTRESOURCEW(IDI_SONORA_APP), IMAGE_ICON,
+                                             GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
+                                             LR_SHARED));
+    if (!nid.hIcon) {
+        nid.hIcon = LoadIconW(module, MAKEINTRESOURCEW(IDI_SONORA_APP));
+    }
     if (!nid.hIcon) {
         nid.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
     }
@@ -64,7 +71,18 @@ void Win32TrayIcon::init(const QString& tooltip) {
     std::wmemcpy(nid.szTip, tipW.c_str(), copyLen);
     nid.szTip[copyLen] = L'\0';
 
-    if (Shell_NotifyIconW(NIM_ADD, &nid)) {
+    return Shell_NotifyIconW(NIM_ADD, &nid) != FALSE;
+}
+
+void Win32TrayIcon::init(const QString& tooltip) {
+    tooltip_ = tooltip.left(120);
+    if (!hwnd_ || active_) return;
+
+    if (taskbarCreatedMsg_ == 0) {
+        taskbarCreatedMsg_ = RegisterWindowMessageW(L"TaskbarCreated");
+    }
+
+    if (addTrayIcon()) {
         active_ = true;
     }
 }
@@ -106,10 +124,16 @@ void Win32TrayIcon::shutdown() {
 }
 
 void Win32TrayIcon::showContextMenu() {
-    if (!hwnd_) return;
+    if (!hwnd_) {
+        menuOpen_ = false;
+        return;
+    }
     HWND hwnd = reinterpret_cast<HWND>(hwnd_);
     HMENU menu = CreatePopupMenu();
-    if (!menu) return;
+    if (!menu) {
+        menuOpen_ = false;
+        return;
+    }
 
     AppendMenuW(menu, MF_STRING, kCmdShow, L"显示 Sonora / Show Sonora");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
@@ -127,7 +151,10 @@ void Win32TrayIcon::showContextMenu() {
     const UINT cmd = TrackPopupMenuEx(
         menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
         pt.x, pt.y, hwnd, nullptr);
+    // Required by Microsoft KB135788 so subsequent right-clicks and outside clicks behave cleanly.
+    PostMessageW(hwnd, WM_NULL, 0, 0);
     DestroyMenu(menu);
+    menuOpen_ = false;
 
     switch (cmd) {
     case kCmdShow:      emit showWindowRequested(); break;
@@ -148,6 +175,12 @@ bool Win32TrayIcon::nativeEventFilter(const QByteArray& eventType, void* message
     if (!msg || reinterpret_cast<uintptr_t>(msg->hwnd) != hwnd_) {
         return false;
     }
+    if (taskbarCreatedMsg_ != 0 && msg->message == taskbarCreatedMsg_) {
+        if (active_) {
+            addTrayIcon();
+        }
+        return false;
+    }
     if (msg->message == kTrayCallbackMsg) {
         const LPARAM ev = LOWORD(msg->lParam);
         if (ev == WM_LBUTTONUP || ev == WM_LBUTTONDBLCLK) {
@@ -155,7 +188,10 @@ bool Win32TrayIcon::nativeEventFilter(const QByteArray& eventType, void* message
             return true;
         }
         if (ev == WM_RBUTTONUP || ev == WM_CONTEXTMENU) {
-            showContextMenu();
+            if (!menuOpen_) {
+                menuOpen_ = true;
+                QMetaObject::invokeMethod(this, &Win32TrayIcon::showContextMenu, Qt::QueuedConnection);
+            }
             return true;
         }
     }

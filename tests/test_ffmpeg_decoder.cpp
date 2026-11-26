@@ -1,13 +1,23 @@
 #include "audio/FFmpegDecoder.h"
 #include "audio/IAudioOutput.h"
 #include "audio/PlaybackEngine.h"
+#include "core/PlaybackController.h"
 
 #include <QDir>
+#include <QFileInfo>
+#include <QImage>
 #include <QProcess>
 #include <QTemporaryDir>
 #include <QtTest/QtTest>
 #include <cmath>
 #include <vector>
+
+extern "C" {
+#include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+#include <libavutil/avutil.h>
+#include <libswresample/swresample.h>
+}
 
 using namespace sonora;
 
@@ -97,6 +107,27 @@ bool writeSyntheticWav(const QString& wavPath, int freqHz, int sampleRate, doubl
     return f.write(reinterpret_cast<const char*>(samples.data()), dataBytes) == static_cast<qint64>(dataBytes);
 }
 
+QString resolveFfmpegExecutable() {
+#ifdef SONORA_FFMPEG_EXECUTABLE
+    const QString compiled = QStringLiteral(SONORA_FFMPEG_EXECUTABLE);
+    if (QFileInfo::exists(compiled)) {
+        return compiled;
+    }
+#endif
+    const QString envRoot = qEnvironmentVariable("FFMPEG_ROOT");
+    if (!envRoot.isEmpty()) {
+#ifdef _WIN32
+        const QString candidate = QDir(envRoot).filePath(QStringLiteral("bin/ffmpeg.exe"));
+#else
+        const QString candidate = QDir(envRoot).filePath(QStringLiteral("bin/ffmpeg"));
+#endif
+        if (QFileInfo::exists(candidate)) {
+            return candidate;
+        }
+    }
+    return QStringLiteral("ffmpeg");
+}
+
 bool generateSyntheticAudio(const QString& outPath,
                             int freqHz,
                             int sampleRate,
@@ -113,8 +144,26 @@ bool generateSyntheticAudio(const QString& outPath,
 
     QProcess proc;
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert(QStringLiteral("LD_LIBRARY_PATH"),
-               QStringLiteral("/home/antigravity/deps/ffmpeg-8.1/lib:") + env.value(QStringLiteral("LD_LIBRARY_PATH")));
+    const QString ffmpegExe = resolveFfmpegExecutable();
+#ifdef _WIN32
+    QString binDir;
+#ifdef SONORA_FFMPEG_BIN_DIR
+    binDir = QStringLiteral(SONORA_FFMPEG_BIN_DIR);
+#endif
+    if (binDir.isEmpty()) {
+        binDir = QFileInfo(ffmpegExe).absolutePath();
+    }
+    if (!binDir.isEmpty()) {
+        env.insert(QStringLiteral("PATH"),
+                   QDir::toNativeSeparators(binDir) + QLatin1Char(';') + env.value(QStringLiteral("PATH")));
+    }
+#else
+    const QString envRoot = qEnvironmentVariable("FFMPEG_ROOT");
+    if (!envRoot.isEmpty()) {
+        env.insert(QStringLiteral("LD_LIBRARY_PATH"),
+                   QDir(envRoot).filePath(QStringLiteral("lib")) + QLatin1Char(':') + env.value(QStringLiteral("LD_LIBRARY_PATH")));
+    }
+#endif
     proc.setProcessEnvironment(env);
 
     QStringList args = {
@@ -124,8 +173,11 @@ bool generateSyntheticAudio(const QString& outPath,
     args.append(extraArgs);
     args.append(outPath);
 
-    proc.start(QStringLiteral("/home/antigravity/deps/ffmpeg-8.1/bin/ffmpeg"), args);
-    const bool ok = proc.waitForFinished(15000) && proc.exitCode() == 0;
+    proc.start(ffmpegExe, args);
+    const bool ok = proc.waitForFinished(15000) && proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0;
+    if (!ok) {
+        qWarning() << "ffmpeg failed:" << ffmpegExe << proc.errorString() << proc.readAllStandardError();
+    }
     QFile::remove(tmpWav);
     return ok;
 }
@@ -136,6 +188,57 @@ class TestFFmpegDecoder : public QObject {
     Q_OBJECT
 
 private slots:
+    void playbackRecoversCoverWhenCacheIsMissing() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+
+        TrackInfo track;
+        track.filePath = dir.filePath(QStringLiteral("song.wav"));
+        track.coverHash = QStringLiteral("0123456789abcdef");
+        QVERIFY(writeSyntheticWav(track.filePath, 440, 44100, 0.1));
+
+        PlaybackEngine engine(std::make_unique<MockAudioOutput>());
+        PlaybackController controller(&engine, nullptr, nullptr);
+        controller.setCoverLoader([](const QString&) { return QImage{}; });
+        engine.currentTrackChanged(track, 0);
+        QVERIFY(controller.trackCoverUrl().isEmpty());
+
+        QImage artwork(180, 120, QImage::Format_RGB32);
+        artwork.fill(Qt::red);
+        QVERIFY(artwork.save(dir.filePath(QStringLiteral("song.png"))));
+        engine.currentTrackChanged(track, 0);
+
+        const QString dataUrl = controller.trackCoverUrl();
+        const QString prefix = QStringLiteral("data:image/jpeg;base64,");
+        QVERIFY(dataUrl.startsWith(prefix));
+        const auto decoded = QImage::fromData(QByteArray::fromBase64(dataUrl.mid(prefix.size()).toLatin1()));
+        QCOMPARE(decoded.size(), artwork.size());
+
+        controller.setCoverLoader([&artwork](const QString&) { return artwork; });
+        engine.currentTrackChanged(track, 0);
+        QCOMPARE(controller.trackCoverUrl(), QStringLiteral("image://cover/0123456789abcdef?size=360"));
+    }
+
+    void verifyFFmpegRuntimeVersion() {
+        const unsigned avcVer = avcodec_version();
+        const unsigned avfVer = avformat_version();
+        const unsigned avuVer = avutil_version();
+        const unsigned swrVer = swresample_version();
+        qInfo() << "Linked FFmpeg runtime:" << av_version_info()
+                << "avcodec=" << AV_VERSION_MAJOR(avcVer)
+                << "avformat=" << AV_VERSION_MAJOR(avfVer)
+                << "avutil=" << AV_VERSION_MAJOR(avuVer)
+                << "swresample=" << AV_VERSION_MAJOR(swrVer);
+
+        QCOMPARE(static_cast<int>(AV_VERSION_MAJOR(avcVer)), LIBAVCODEC_VERSION_MAJOR);
+        QCOMPARE(static_cast<int>(AV_VERSION_MAJOR(avfVer)), LIBAVFORMAT_VERSION_MAJOR);
+        QCOMPARE(static_cast<int>(AV_VERSION_MAJOR(avuVer)), LIBAVUTIL_VERSION_MAJOR);
+        QCOMPARE(static_cast<int>(AV_VERSION_MAJOR(swrVer)), LIBSWRESAMPLE_VERSION_MAJOR);
+        QVERIFY2(AV_VERSION_MAJOR(avcVer) >= 63, "Expected FFmpeg 9.x (libavcodec >= 63)");
+        QVERIFY2(AV_VERSION_MAJOR(avfVer) >= 63, "Expected FFmpeg 9.x (libavformat >= 63)");
+        QVERIFY2(AV_VERSION_MAJOR(avuVer) >= 61, "Expected FFmpeg 9.x (libavutil >= 61)");
+        QVERIFY2(AV_VERSION_MAJOR(swrVer) >= 7,  "Expected FFmpeg 9.x (libswresample >= 7)");
+    }
     void probeAndDecodeFlacWithReplayGain() {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());

@@ -12,24 +12,28 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 20
-        spacing: 12
+        anchors.margins: 22
+        spacing: 14
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: 10
+            spacing: 12
+
+            SonoraButton {
+                visible: root.lib.canGoUpFolder
+                compact: true
+                iconName: "chevron_left"
+                onClicked: root.lib.goUpFolder()
+            }
 
             Rectangle {
-                visible: root.lib.canGoUpFolder
-                implicitWidth: 30; implicitHeight: 30; radius: 8
-                color: upMa.containsMouse ? DesignTokens.surfaceHover : DesignTokens.surfaceCard
-                border.width: 1; border.color: DesignTokens.borderSubtle
-                IconGlyph { anchors.centerIn: parent; name: "chevron_left"; size: 15; color: DesignTokens.textPrimary }
-                MouseArea {
-                    id: upMa; anchors.fill: parent; hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: root.lib.goUpFolder()
-                }
+                implicitWidth: 42
+                implicitHeight: 42
+                radius: 13
+                color: DesignTokens.accentSoft
+                border.width: 1
+                border.color: Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, 0.25)
+                IconGlyph { anchors.centerIn: parent; name: "folder"; size: 19; color: DesignTokens.accent }
             }
 
             ColumnLayout {
@@ -39,7 +43,7 @@ Item {
                     text: qsTr("Folders")
                     color: DesignTokens.textPrimary
                     font.family: DesignTokens.fontFamily
-                    font.pixelSize: 24
+                    font.pixelSize: 23
                     font.weight: Font.Bold
                 }
                 Text {
@@ -52,22 +56,11 @@ Item {
                 }
             }
 
-            Rectangle {
-                implicitHeight: 32; implicitWidth: addFLbl.implicitWidth + 24; radius: 16
-                color: addFMa.containsMouse ? DesignTokens.surfaceHover : DesignTokens.surfaceCard
-                border.width: 1; border.color: DesignTokens.borderSubtle
-                Text {
-                    id: addFLbl; anchors.centerIn: parent
-                    text: qsTr("+ Add Folder")
-                    color: DesignTokens.textPrimary
-                    font.family: DesignTokens.fontFamily
-                    font.pixelSize: 12
-                }
-                MouseArea {
-                    id: addFMa; anchors.fill: parent; hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: root.addFolderRequested()
-                }
+            SonoraButton {
+                accentTinted: true
+                iconName: "plus"
+                text: qsTr("Add Folder")
+                onClicked: root.addFolderRequested()
             }
         }
 
@@ -82,17 +75,24 @@ Item {
                 delegate: Rectangle {
                     id: fCard
                     required property var modelData
-                    height: 36
-                    width: Math.min(260, fRow.implicitWidth + 24)
-                    radius: 10
-                    color: fMa.containsMouse ? DesignTokens.surfaceHover : DesignTokens.surfaceCard
-                    border.width: 1; border.color: DesignTokens.borderSubtle
+                    height: 38
+                    width: Math.min(280, fRow.implicitWidth + 26)
+                    radius: 12
+                    color: fMa.containsMouse ? DesignTokens.surfaceCardHover : DesignTokens.surfaceCard
+                    border.width: 1
+                    border.color: fMa.containsMouse ? DesignTokens.borderHighlight : DesignTokens.borderOuter
+                    scale: fMa.pressed ? 0.96 : (fMa.containsMouse ? 1.02 : 1.0)
+
+                    Behavior on color { ColorAnimation { duration: 130 } }
+                    Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
 
                     RowLayout {
                         id: fRow
                         anchors.fill: parent
-                        anchors.leftMargin: 10; anchors.rightMargin: 10
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 11
                         spacing: 8
+
                         IconGlyph { name: "folder"; size: 15; color: DesignTokens.accent }
                         Text {
                             Layout.fillWidth: true
@@ -101,10 +101,15 @@ Item {
                             color: DesignTokens.textPrimary
                             font.family: DesignTokens.fontFamily
                             font.pixelSize: 13
+                            font.weight: Font.Medium
                         }
+                        IconGlyph { name: "chevron_right"; size: 12; color: DesignTokens.textTertiary }
                     }
+
                     MouseArea {
-                        id: fMa; anchors.fill: parent; hoverEnabled: true
+                        id: fMa
+                        anchors.fill: parent
+                        hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.lib.openFolder(fCard.modelData.path)
                     }
@@ -117,8 +122,9 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            spacing: 2
+            spacing: 3
             reuseItems: true
+            boundsBehavior: Flickable.StopAtBounds
             model: root.lib.detailTracksModel
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
@@ -133,15 +139,40 @@ Item {
 
                 readonly property bool isCurrent: root.controller.trackId >= 0 && root.controller.trackId === trackId
                 width: ListView.view ? ListView.view.width : 500
-                height: 44
-                radius: 8
-                color: isCurrent ? DesignTokens.surfaceSelected
-                                 : (ftMa.containsMouse ? DesignTokens.surfaceHover : "transparent")
+                height: 46
+                radius: 10
+                color: isCurrent
+                    ? DesignTokens.surfaceSelected
+                    : (ftMa.containsMouse ? DesignTokens.surfaceHover : "transparent")
+                border.width: isCurrent ? 1 : 0
+                border.color: Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, 0.25)
+                Behavior on color { ColorAnimation { duration: 110 } }
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 12; anchors.rightMargin: 12
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 14
                     spacing: 12
+
+                    Item {
+                        Layout.preferredWidth: 24
+                        implicitHeight: 20
+
+                        NowPlayingBars {
+                            anchors.centerIn: parent
+                            visible: ftRow.isCurrent
+                            playing: root.controller.isPlaying
+                            size: 13
+                        }
+
+                        IconGlyph {
+                            anchors.centerIn: parent
+                            visible: !ftRow.isCurrent
+                            name: "music"
+                            size: 13
+                            color: DesignTokens.textTertiary
+                        }
+                    }
 
                     Text {
                         Layout.fillWidth: true
@@ -150,37 +181,77 @@ Item {
                         color: ftRow.isCurrent ? DesignTokens.accent : DesignTokens.textPrimary
                         font.family: DesignTokens.fontFamily
                         font.pixelSize: 13
+                        font.weight: ftRow.isCurrent ? Font.DemiBold : Font.Medium
                     }
+
                     Text {
-                        Layout.preferredWidth: 160
+                        Layout.preferredWidth: 165
                         text: ftRow.artist
                         elide: Text.ElideRight
                         color: DesignTokens.textSecondary
                         font.family: DesignTokens.fontFamily
                         font.pixelSize: 12
                     }
+
                     FormatBadge { compact: true; text: ftRow.formatBadge }
+
                     Text {
+                        Layout.preferredWidth: 48
+                        horizontalAlignment: Text.AlignRight
                         text: root.controller.formatTime(ftRow.durationMs)
                         color: DesignTokens.textTertiary
                         font.family: DesignTokens.fontFamily
                         font.pixelSize: 12
+                        font.features: ({ "tnum": 1 })
                     }
                 }
+
                 MouseArea {
-                    id: ftMa; anchors.fill: parent; hoverEnabled: true
+                    id: ftMa
+                    anchors.fill: parent
+                    hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: root.lib.playFromDetailModel(ftRow.index)
                 }
             }
 
-            Text {
+            GlassPanel {
                 anchors.centerIn: parent
                 visible: root.lib.folderEntries.length === 0 && root.lib.detailTracksModel.count === 0
-                text: qsTr("Add local music folders to browse by directory structure")
-                color: DesignTokens.textTertiary
-                font.family: DesignTokens.fontFamily
-                font.pixelSize: 13
+                width: Math.min(parent.width - 64, 420)
+                height: emptyFolderCol.implicitHeight + 44
+                radius: DesignTokens.radiusXl
+
+                ColumnLayout {
+                    id: emptyFolderCol
+                    anchors.centerIn: parent
+                    width: parent.width - 48
+                    spacing: 10
+
+                    Rectangle {
+                        Layout.alignment: Qt.AlignHCenter
+                        implicitWidth: 54; implicitHeight: 54; radius: 16
+                        color: DesignTokens.accentSoft
+                        IconGlyph { anchors.centerIn: parent; name: "folder"; size: 24; color: DesignTokens.accent }
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                        text: qsTr("Add local music folders to browse directly by directory structure")
+                        color: DesignTokens.textSecondary
+                        font.family: DesignTokens.fontFamily
+                        font.pixelSize: 13
+                    }
+                    SonoraButton {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.topMargin: 4
+                        primary: true
+                        iconName: "folder"
+                        text: qsTr("Add Music Folder")
+                        onClicked: root.addFolderRequested()
+                    }
+                }
             }
         }
     }

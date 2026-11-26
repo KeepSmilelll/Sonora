@@ -28,11 +28,11 @@ public:
     int totalCount() const noexcept { return totalCount_.load(std::memory_order_acquire); }
 
     void setWatchedFolders(const QStringList& folders);
-    void startScan(const QStringList& folders);
+    void startScan(const QStringList& folders, bool forceRefresh = false);
     void cancelScan();
 
     // Synchronous scan helper for deterministic automated tests
-    int scanSynchronously(const QStringList& folders);
+    int scanSynchronously(const QStringList& folders, bool forceRefresh = false);
 
 signals:
     void scanningChanged();
@@ -40,7 +40,7 @@ signals:
     void scanFinished(int indexedTracks);
 
 private:
-    int runScanWork(const QStringList& folders);
+    int runScanWork(const QStringList& folders, bool forceRefresh);
 
     LibraryDatabase* db_ = nullptr;
     CoverArtProvider* covers_ = nullptr;

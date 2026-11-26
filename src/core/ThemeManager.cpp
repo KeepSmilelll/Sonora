@@ -32,7 +32,32 @@ ThemeManager::ThemeManager(AppSettings* settings, QQmlEngine* qmlEngine, QObject
     if (auto* hints = QGuiApplication::styleHints()) {
         connect(hints, &QStyleHints::colorSchemeChanged, this, [this]() {
             if (themeMode() == QStringLiteral("system")) {
+                const bool prevDark = isDark_;
                 resolveTheme();
+                if (prevDark != isDark_) {
+                    float h1 = 0, s1 = 0, l1 = 0;
+                    ambientPrimary_.getHslF(&h1, &s1, &l1);
+                    float h2 = 0, s2 = 0, l2 = 0;
+                    ambientSecondary_.getHslF(&h2, &s2, &l2);
+                    float ha = 0, sa = 0, la = 0;
+                    accentColor_.getHslF(&ha, &sa, &la);
+                    if (h1 < 0.0f || s1 < 0.08f) {
+                        resetAmbientColors();
+                    } else {
+                        if (h2 < 0.0f) h2 = h1;
+                        if (ha < 0.0f) ha = h1;
+                        if (isDark_) {
+                            ambientPrimary_ = QColor::fromHslF(h1, std::clamp(s1 * 1.25f, 0.24f, 0.58f), 0.20f);
+                            ambientSecondary_ = QColor::fromHslF(h2, std::clamp(s2 * 1.20f, 0.18f, 0.48f), 0.12f);
+                            accentColor_ = QColor::fromHslF(ha, std::clamp(sa, 0.58f, 0.85f), 0.62f);
+                        } else {
+                            ambientPrimary_ = QColor::fromHslF(h1, std::clamp(s1 * 0.78f, 0.18f, 0.40f), 0.89f);
+                            ambientSecondary_ = QColor::fromHslF(h2, std::clamp(s2 * 0.78f, 0.15f, 0.34f), 0.93f);
+                            accentColor_ = QColor::fromHslF(ha, std::clamp(sa, 0.58f, 0.82f), 0.44f);
+                        }
+                        emit ambientColorsChanged();
+                    }
+                }
                 emit themeChanged();
             }
         });
@@ -63,8 +88,33 @@ QString ThemeManager::themeMode() const {
 
 void ThemeManager::setThemeMode(const QString& mode) {
     if (!settings_) return;
+    const bool prevDark = isDark_;
     settings_->setThemeMode(mode);
     resolveTheme();
+    if (prevDark != isDark_) {
+        float h1 = 0, s1 = 0, l1 = 0;
+        ambientPrimary_.getHslF(&h1, &s1, &l1);
+        float h2 = 0, s2 = 0, l2 = 0;
+        ambientSecondary_.getHslF(&h2, &s2, &l2);
+        float ha = 0, sa = 0, la = 0;
+        accentColor_.getHslF(&ha, &sa, &la);
+        if (h1 < 0.0f || s1 < 0.08f) {
+            resetAmbientColors();
+        } else {
+            if (h2 < 0.0f) h2 = h1;
+            if (ha < 0.0f) ha = h1;
+            if (isDark_) {
+                ambientPrimary_ = QColor::fromHslF(h1, std::clamp(s1 * 1.25f, 0.24f, 0.58f), 0.20f);
+                ambientSecondary_ = QColor::fromHslF(h2, std::clamp(s2 * 1.20f, 0.18f, 0.48f), 0.12f);
+                accentColor_ = QColor::fromHslF(ha, std::clamp(sa, 0.58f, 0.85f), 0.62f);
+            } else {
+                ambientPrimary_ = QColor::fromHslF(h1, std::clamp(s1 * 0.78f, 0.18f, 0.40f), 0.89f);
+                ambientSecondary_ = QColor::fromHslF(h2, std::clamp(s2 * 0.78f, 0.15f, 0.34f), 0.93f);
+                accentColor_ = QColor::fromHslF(ha, std::clamp(sa, 0.58f, 0.82f), 0.44f);
+            }
+            emit ambientColorsChanged();
+        }
+    }
     emit themeChanged();
 }
 

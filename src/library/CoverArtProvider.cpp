@@ -8,6 +8,7 @@
 #include <QFileInfo>
 #include <QImageReader>
 #include <QRunnable>
+#include <QSaveFile>
 #include <QUrlQuery>
 #include <algorithm>
 
@@ -40,7 +41,10 @@ private:
     QImage image_;
 };
 
-QString findFolderCoverPath(const QString& audioFilePath) {
+} // namespace
+
+QStringList CoverArtProvider::folderCoverPaths(const QString& audioFilePath) {
+    if (audioFilePath.isEmpty()) return {};
     const QFileInfo fi(audioFilePath);
     const QDir dir = fi.dir();
     static const QStringList kCoverNames = {
@@ -49,20 +53,17 @@ QString findFolderCoverPath(const QString& audioFilePath) {
         QStringLiteral("front.jpg"),  QStringLiteral("front.png"),
         QStringLiteral("album.jpg"),  QStringLiteral("album.png")
     };
+    QStringList candidates;
     for (const QString& name : kCoverNames) {
-        const QString p = dir.filePath(name);
-        if (QFileInfo::exists(p)) {
-            return p;
-        }
+        const QString path = dir.filePath(name);
+        if (QFileInfo::exists(path)) candidates.append(path);
     }
-    const QString stemJpg = dir.filePath(fi.completeBaseName() + QStringLiteral(".jpg"));
-    if (QFileInfo::exists(stemJpg)) return stemJpg;
-    const QString stemPng = dir.filePath(fi.completeBaseName() + QStringLiteral(".png"));
-    if (QFileInfo::exists(stemPng)) return stemPng;
-    return {};
+    for (const QString& suffix : {QStringLiteral(".jpg"), QStringLiteral(".png")}) {
+        const QString path = dir.filePath(fi.completeBaseName() + suffix);
+        if (QFileInfo::exists(path) && !candidates.contains(path)) candidates.append(path);
+    }
+    return candidates;
 }
-
-} // namespace
 
 CoverArtProvider::CoverArtProvider(const QString& cacheDir, int maxRamBytes)
     : cacheDir_(cacheDir)
@@ -107,22 +108,25 @@ QString CoverArtProvider::storeRawImageBytes(const QByteArray& imageBytes) {
         QCryptographicHash::hash(imageBytes, QCryptographicHash::Sha1).toHex().left(16));
     const QString dstPath = diskPathForHash(hash);
 
-    if (!QFileInfo::exists(dstPath)) {
-        QBuffer buf;
-        buf.setData(imageBytes);
-        buf.open(QIODevice::ReadOnly);
-        QImageReader reader(&buf);
-        reader.setAutoTransform(true);
-        const QSize orig = reader.size();
-        if (orig.isValid() && (orig.width() > 420 || orig.height() > 420)) {
-            reader.setScaledSize(orig.scaled(420, 420, Qt::KeepAspectRatio));
-        }
-        const QImage img = reader.read();
-        if (img.isNull()) {
-            return {};
-        }
-        QDir().mkpath(cacheDir_);
-        img.save(dstPath, "JPG", 84);
+    if (QFileInfo::exists(dstPath) && !loadCover(hash, 96).isNull()) return hash;
+
+    QBuffer buf;
+    buf.setData(imageBytes);
+    buf.open(QIODevice::ReadOnly);
+    QImageReader reader(&buf);
+    reader.setAutoTransform(true);
+    const QSize orig = reader.size();
+    if (orig.isValid() && (orig.width() > 420 || orig.height() > 420)) {
+        reader.setScaledSize(orig.scaled(420, 420, Qt::KeepAspectRatio));
+    }
+    const QImage img = reader.read();
+    if (img.isNull()) return {};
+
+    QDir().mkpath(cacheDir_);
+    QSaveFile cachedFile(dstPath);
+    if (!cachedFile.open(QIODevice::WriteOnly) || !img.save(&cachedFile, "JPG", 84)
+        || !cachedFile.commit()) {
+        return {};
     }
     return hash;
 }
@@ -138,11 +142,11 @@ QString CoverArtProvider::indexCoverForAudioFile(const QString& audioFilePath) {
     }
 
     // Priority 2: folder cover image (cover.jpg, folder.png, front.jpg, etc.)
-    const QString folderCover = findFolderCoverPath(audioFilePath);
-    if (!folderCover.isEmpty()) {
-        QFile f(folderCover);
+    for (const QString& candidate : folderCoverPaths(audioFilePath)) {
+        QFile f(candidate);
         if (f.open(QIODevice::ReadOnly)) {
-            return storeRawImageBytes(f.readAll());
+            const QString hash = storeRawImageBytes(f.readAll());
+            if (!hash.isEmpty()) return hash;
         }
     }
     return {};

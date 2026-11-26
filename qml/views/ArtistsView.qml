@@ -11,40 +11,48 @@ Item {
 
     property string selectedArtist: ""
 
+    onSelectedArtistChanged: artistDetailAnim.restart()
+
     RowLayout {
         anchors.fill: parent
-        anchors.margins: 20
+        anchors.margins: 22
         spacing: 16
 
-        // Left Artist List
-        Rectangle {
-            Layout.preferredWidth: 240
+        // Left Spatial Glass Artist Rail
+        GlassPanel {
+            Layout.preferredWidth: 258
             Layout.fillHeight: true
             radius: DesignTokens.radiusLg
-            color: DesignTokens.surfaceCard
-            border.width: 1
-            border.color: DesignTokens.borderSubtle
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 10
+                anchors.margins: 12
                 spacing: 8
 
-                Text {
-                    text: qsTr("Artists (%1)").arg(root.lib.artistsModel.count)
-                    color: DesignTokens.textPrimary
-                    font.family: DesignTokens.fontFamily
-                    font.pixelSize: 15
-                    font.weight: Font.DemiBold
-                    Layout.leftMargin: 6
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 4
+                    Layout.rightMargin: 4
+                    spacing: 8
+
+                    IconGlyph { name: "artist"; size: 16; color: DesignTokens.accent }
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("Artists (%1)").arg(root.lib.artistsModel.count)
+                        color: DesignTokens.textPrimary
+                        font.family: DesignTokens.fontFamily
+                        font.pixelSize: 15
+                        font.weight: Font.Bold
+                    }
                 }
 
                 ListView {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
-                    spacing: 2
+                    spacing: 3
                     reuseItems: true
+                    boundsBehavior: Flickable.StopAtBounds
                     model: root.lib.artistsModel
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
@@ -55,35 +63,65 @@ Item {
                         required property int trackCount
 
                         readonly property bool sel: root.selectedArtist === artist
-                        width: ListView.view ? ListView.view.width : 210
-                        height: 44
-                        radius: 8
-                        color: sel ? DesignTokens.surfaceSelected
-                                   : (arMa.containsMouse ? DesignTokens.surfaceHover : "transparent")
+                        readonly property string initial: artist.trim().length > 0 ? artist.trim().charAt(0).toUpperCase() : "♪"
+                        width: ListView.view ? ListView.view.width : 220
+                        height: 48
+                        radius: 10
+                        color: sel
+                            ? DesignTokens.surfaceSelected
+                            : (arMa.containsMouse ? DesignTokens.surfaceHover : "transparent")
+                        border.width: sel ? 1 : 0
+                        border.color: Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, 0.25)
+                        Behavior on color { ColorAnimation { duration: 120 } }
 
-                        ColumnLayout {
+                        RowLayout {
                             anchors.fill: parent
-                            anchors.leftMargin: 10; anchors.rightMargin: 10
-                            spacing: 1
+                            anchors.leftMargin: 10
+                            anchors.rightMargin: 10
+                            spacing: 10
 
-                            Text {
-                                Layout.fillWidth: true
-                                text: arRow.artist
-                                elide: Text.ElideRight
-                                color: arRow.sel ? DesignTokens.accent : DesignTokens.textPrimary
-                                font.family: DesignTokens.fontFamily
-                                font.pixelSize: 13
-                                font.weight: arRow.sel ? Font.DemiBold : Font.Normal
+                            Rectangle {
+                                implicitWidth: 32
+                                implicitHeight: 32
+                                radius: 16
+                                color: arRow.sel ? DesignTokens.accent : DesignTokens.accentSoft
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: arRow.initial
+                                    color: arRow.sel ? "#ffffff" : DesignTokens.accent
+                                    font.family: DesignTokens.fontFamily
+                                    font.pixelSize: 13
+                                    font.weight: Font.Bold
+                                }
                             }
-                            Text {
-                                text: qsTr("%1 album(s) · %2 track(s)").arg(arRow.albumCount).arg(arRow.trackCount)
-                                color: DesignTokens.textTertiary
-                                font.family: DesignTokens.fontFamily
-                                font.pixelSize: 11
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 1
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: arRow.artist
+                                    elide: Text.ElideRight
+                                    color: arRow.sel ? DesignTokens.accent : DesignTokens.textPrimary
+                                    font.family: DesignTokens.fontFamily
+                                    font.pixelSize: 13
+                                    font.weight: arRow.sel ? Font.DemiBold : Font.Medium
+                                }
+                                Text {
+                                    text: qsTr("%1 album(s) · %2 track(s)").arg(arRow.albumCount).arg(arRow.trackCount)
+                                    color: DesignTokens.textTertiary
+                                    font.family: DesignTokens.fontFamily
+                                    font.pixelSize: 11
+                                }
                             }
                         }
+
                         MouseArea {
-                            id: arMa; anchors.fill: parent; hoverEnabled: true
+                            id: arMa
+                            anchors.fill: parent
+                            hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
                                 root.selectedArtist = arRow.artist
@@ -97,37 +135,68 @@ Item {
 
         // Right Artist Tracks Pane
         ColumnLayout {
+            id: rightPane
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: 12
+            transform: Translate { id: rightShift; y: 0 }
+
+            ParallelAnimation {
+                id: artistDetailAnim
+                NumberAnimation { target: rightPane; property: "opacity"; from: 0.0; to: 1.0; duration: 180; easing.type: Easing.OutCubic }
+                NumberAnimation { target: rightShift; property: "y"; from: 8; to: 0; duration: 220; easing.type: Easing.OutQuint }
+            }
 
             RowLayout {
                 Layout.fillWidth: true
-                Text {
-                    Layout.fillWidth: true
-                    text: root.selectedArtist.length > 0 ? root.selectedArtist : qsTr("Select an Artist")
-                    color: DesignTokens.textPrimary
-                    font.family: DesignTokens.fontFamily
-                    font.pixelSize: 22
-                    font.weight: Font.Bold
-                    elide: Text.ElideRight
-                }
+                spacing: 12
+
                 Rectangle {
-                    visible: root.selectedArtist.length > 0 && root.lib.detailTracksModel.count > 0
-                    implicitHeight: 32; implicitWidth: pAllLbl.implicitWidth + 24; radius: 16
-                    color: DesignTokens.accent
+                    visible: root.selectedArtist.length > 0
+                    implicitWidth: 42
+                    implicitHeight: 42
+                    radius: 21
+                    color: DesignTokens.accentSoft
+                    border.width: 1
+                    border.color: Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, 0.25)
+
                     Text {
-                        id: pAllLbl; anchors.centerIn: parent
-                        text: qsTr("Play All")
-                        color: "#ffffff"
+                        anchors.centerIn: parent
+                        text: root.selectedArtist.trim().length > 0 ? root.selectedArtist.trim().charAt(0).toUpperCase() : ""
+                        color: DesignTokens.accent
+                        font.family: DesignTokens.fontFamily
+                        font.pixelSize: 16
+                        font.weight: Font.Bold
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.selectedArtist.length > 0 ? root.selectedArtist : qsTr("Select an Artist")
+                        color: DesignTokens.textPrimary
+                        font.family: DesignTokens.fontFamily
+                        font.pixelSize: 22
+                        font.weight: Font.Bold
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        visible: root.selectedArtist.length > 0
+                        text: qsTr("%1 track(s)").arg(root.lib.detailTracksModel.count)
+                        color: DesignTokens.textTertiary
                         font.family: DesignTokens.fontFamily
                         font.pixelSize: 12
-                        font.weight: Font.DemiBold
                     }
-                    MouseArea {
-                        anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                        onClicked: root.lib.playFromDetailModel(0)
-                    }
+                }
+
+                SonoraButton {
+                    visible: root.selectedArtist.length > 0 && root.lib.detailTracksModel.count > 0
+                    primary: true
+                    iconName: "play"
+                    text: qsTr("Play All")
+                    onClicked: root.lib.playFromDetailModel(0)
                 }
             }
 
@@ -135,8 +204,9 @@ Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
-                spacing: 2
+                spacing: 3
                 reuseItems: true
+                boundsBehavior: Flickable.StopAtBounds
                 model: root.lib.detailTracksModel
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
@@ -151,15 +221,42 @@ Item {
 
                     readonly property bool isCurrent: root.controller.trackId >= 0 && root.controller.trackId === trackId
                     width: ListView.view ? ListView.view.width : 400
-                    height: 44
-                    radius: 8
-                    color: isCurrent ? DesignTokens.surfaceSelected
-                                     : (atMa.containsMouse ? DesignTokens.surfaceHover : "transparent")
+                    height: 48
+                    radius: 10
+                    color: isCurrent
+                        ? DesignTokens.surfaceSelected
+                        : (atMa.containsMouse ? DesignTokens.surfaceHover : "transparent")
+                    border.width: isCurrent ? 1 : 0
+                    border.color: Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, 0.25)
+                    Behavior on color { ColorAnimation { duration: 110 } }
 
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: 12; anchors.rightMargin: 12
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 14
                         spacing: 12
+
+                        Item {
+                            Layout.preferredWidth: 24
+                            implicitHeight: 20
+
+                            NowPlayingBars {
+                                anchors.centerIn: parent
+                                visible: atRow.isCurrent
+                                playing: root.controller.isPlaying
+                                size: 13
+                            }
+
+                            Text {
+                                anchors.centerIn: parent
+                                visible: !atRow.isCurrent
+                                text: String(atRow.index + 1)
+                                color: DesignTokens.textTertiary
+                                font.family: DesignTokens.fontFamily
+                                font.pixelSize: 11
+                                font.features: ({ "tnum": 1 })
+                            }
+                        }
 
                         ColumnLayout {
                             Layout.fillWidth: true
@@ -171,7 +268,7 @@ Item {
                                 color: atRow.isCurrent ? DesignTokens.accent : DesignTokens.textPrimary
                                 font.family: DesignTokens.fontFamily
                                 font.pixelSize: 13
-                                font.weight: atRow.isCurrent ? Font.DemiBold : Font.Normal
+                                font.weight: atRow.isCurrent ? Font.DemiBold : Font.Medium
                             }
                             Text {
                                 Layout.fillWidth: true
@@ -182,18 +279,43 @@ Item {
                                 font.pixelSize: 11
                             }
                         }
+
                         FormatBadge { compact: true; text: atRow.formatBadge }
+
                         Text {
+                            Layout.preferredWidth: 48
+                            horizontalAlignment: Text.AlignRight
                             text: root.controller.formatTime(atRow.durationMs)
                             color: DesignTokens.textTertiary
                             font.family: DesignTokens.fontFamily
                             font.pixelSize: 12
+                            font.features: ({ "tnum": 1 })
                         }
                     }
+
                     MouseArea {
-                        id: atMa; anchors.fill: parent; hoverEnabled: true
+                        id: atMa
+                        anchors.fill: parent
+                        hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.lib.playFromDetailModel(atRow.index)
+                    }
+                }
+
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    visible: root.selectedArtist.length === 0
+                    spacing: 8
+                    IconGlyph {
+                        Layout.alignment: Qt.AlignHCenter
+                        name: "artist"; size: 36; color: DesignTokens.textTertiary
+                    }
+                    Text {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: qsTr("Choose an artist on the left to browse tracks")
+                        color: DesignTokens.textTertiary
+                        font.family: DesignTokens.fontFamily
+                        font.pixelSize: 13
                     }
                 }
             }

@@ -1,12 +1,14 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Effects
 import Sonora.UI
 
-Rectangle {
+GlassPanel {
     id: root
 
     required property var controller
     property bool lyricsOpen: false
+    property bool compact: false
     property bool eqOpen: false
     property bool queueOpen: false
 
@@ -16,47 +18,68 @@ Rectangle {
     signal openTrackInfo()
     signal toggleFavorite()
 
-    implicitHeight: DesignTokens.playbackBarHeight
-    color: DesignTokens.playbackBarBg
+    implicitHeight: DesignTokens.dockHeight
+    radius: DesignTokens.radiusDock
+    panelColor: DesignTokens.playbackSurface
+    borderColor: DesignTokens.borderOuter
+    specularEnabled: false
+    shadowEnabled: false
 
-    // Crisp top specular hairline
-    Rectangle {
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        height: 1
-        color: DesignTokens.borderSubtle
-    }
-
-    component IconBtn: Rectangle {
+    component DockIconBtn: Item {
         id: btn
         property string iconName: "play"
         property bool active: false
-        property bool primary: false
+        property bool showActiveDot: false
         property real iconSize: 16
         signal clicked()
 
-        implicitWidth: primary ? 38 : 32
-        implicitHeight: primary ? 38 : 32
-        radius: implicitHeight / 2
-        color: {
-            if (primary) return ma.pressed ? Qt.darker(DesignTokens.accent, 1.15) : DesignTokens.accent
-            if (active) return DesignTokens.surfaceSelected
-            if (ma.pressed) return DesignTokens.surfacePressed
-            if (ma.containsMouse) return DesignTokens.surfaceHover
-            return "transparent"
+        implicitWidth: 29
+        implicitHeight: 29
+
+        scale: btnMa.pressed ? 0.89 : (btnMa.containsMouse ? 1.07 : 1.0)
+        Behavior on scale {
+            NumberAnimation { duration: 150; easing.type: Easing.OutBack; easing.overshoot: 1.15 }
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            radius: height / 2
+            color: {
+                if (btnMa.pressed) return DesignTokens.surfacePressed
+                if (btnMa.containsMouse) return DesignTokens.surfaceHover
+                return "transparent"
+            }
+            Behavior on color { ColorAnimation { duration: 130 } }
         }
 
         IconGlyph {
             anchors.centerIn: parent
+            anchors.verticalCenterOffset: (btn.showActiveDot && btn.active) ? -2 : 0
             name: btn.iconName
             size: btn.iconSize
-            color: btn.primary ? "#ffffff"
-                               : (btn.active ? DesignTokens.accent : DesignTokens.textPrimary)
+            color: btn.active
+                ? DesignTokens.accentLight
+                : (btnMa.containsMouse ? DesignTokens.textPrimary : DesignTokens.textSecondary)
+        }
+
+        // Glowing active indicator dot under Shuffle / Repeat
+        Rectangle {
+            visible: btn.showActiveDot
+            width: 4
+            height: 4
+            radius: 2
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 3
+            color: DesignTokens.accent
+            opacity: btn.active ? 1.0 : 0.0
+            scale: btn.active ? 1.0 : 0.3
+            Behavior on opacity { NumberAnimation { duration: 150 } }
+            Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
         }
 
         MouseArea {
-            id: ma
+            id: btnMa
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
@@ -66,64 +89,119 @@ Rectangle {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 16
-        anchors.rightMargin: 16
-        spacing: 16
+        anchors.leftMargin: root.compact ? 12 : 16
+        anchors.rightMargin: root.compact ? 12 : 16
+        spacing: root.compact ? 12 : 23
 
-        // Left: Cover + Track metadata + Hi-Res / Output badge
+        // Left: Cover + Track metadata + Hi-Res / Output badges
         RowLayout {
-            Layout.preferredWidth: 280
-            Layout.maximumWidth: 320
-            spacing: 12
+            Layout.fillWidth: false
+            Layout.preferredWidth: root.compact ? 194 : 268
+            Layout.maximumWidth: root.compact ? 194 : 268
+            spacing: 10
 
-            Rectangle {
-                id: coverCard
-                implicitWidth: 54
-                implicitHeight: 54
-                radius: 10
-                color: DesignTokens.surfaceCard
-                border.width: 1
-                border.color: DesignTokens.borderSubtle
-                clip: true
+            Item {
+                id: coverButton
+                implicitWidth: 46
+                implicitHeight: 46
 
-                Image {
-                    anchors.fill: parent
-                    source: root.controller.trackCoverUrl
-                    fillMode: Image.PreserveAspectCrop
-                    asynchronous: true
-                    cache: false
-                    visible: status === Image.Ready
-                }
+                readonly property bool hovered: coverMa.containsMouse && root.controller.hasTrack
+                readonly property bool indicatingAction: hovered || coverMa.pressed
 
-                IconGlyph {
-                    anchors.centerIn: parent
-                    name: "music"
-                    size: 22
-                    color: DesignTokens.textTertiary
-                    visible: root.controller.trackCoverUrl.length === 0
-                }
-
-                // Hover expand hint to open immersive lyrics/now-playing view
                 Rectangle {
+                    id: coverCard
                     anchors.fill: parent
-                    color: Qt.rgba(0, 0, 0, 0.35)
-                    opacity: coverMa.containsMouse && root.controller.hasTrack ? 1.0 : 0.0
-                    Behavior on opacity { NumberAnimation { duration: 140 } }
+                    radius: DesignTokens.radiusMd
+                    color: DesignTokens.surfaceCard
+                    clip: true
+
+                    scale: coverMa.pressed ? 0.97 : (coverButton.hovered ? 1.06 : 1.0)
+                    Behavior on scale {
+                        NumberAnimation { duration: DesignTokens.animFast; easing.type: Easing.OutCubic }
+                    }
+
+                    Rectangle {
+                        id: dockCoverMask
+                        anchors.fill: parent
+                        radius: coverCard.radius
+                        visible: false
+                        layer.enabled: true
+                        layer.smooth: true
+                    }
+
+                    Image {
+                        id: dockCoverImg
+                        anchors.fill: parent
+                        source: root.controller.trackCoverUrl
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        cache: false
+                        visible: false
+                    }
+
+                    MultiEffect {
+                        anchors.fill: dockCoverImg
+                        visible: dockCoverImg.status === Image.Ready
+                        source: dockCoverImg
+                        maskEnabled: true
+                        maskSource: dockCoverMask
+                        maskThresholdMin: 0.5
+                        maskSpreadAtMin: 1.0
+                    }
 
                     IconGlyph {
                         anchors.centerIn: parent
-                        name: "lyrics"
-                        size: 18
-                        color: "#ffffff"
+                        name: "music"
+                        size: 22
+                        color: DesignTokens.textTertiary
+                        visible: dockCoverImg.status !== Image.Ready
+                    }
+
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 25
+                        height: 25
+                        radius: height / 2
+                        color: DesignTokens.isDark
+                            ? Qt.rgba(0, 0, 0, coverMa.pressed ? 0.72 : 0.58)
+                            : Qt.rgba(1, 1, 1, coverMa.pressed ? 1.0 : 0.92)
+                        opacity: coverButton.indicatingAction ? 1.0 : 0.0
+                        scale: coverButton.indicatingAction ? 1.0 : 0.85
+                        Behavior on opacity { NumberAnimation { duration: DesignTokens.animFast } }
+                        Behavior on scale {
+                            NumberAnimation { duration: DesignTokens.animFast; easing.type: Easing.OutCubic }
+                        }
+
+                        IconGlyph {
+                            anchors.centerIn: parent
+                            name: root.lyricsOpen ? "chevron_down" : "chevron_up"
+                            size: 17
+                            color: DesignTokens.isDark ? "#ffffff" : DesignTokens.accent
+                            strokeWidth: 2.2
+                        }
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: coverCard.radius
+                        color: "transparent"
+                        border.width: 1
+                        border.color: {
+                            if (root.lyricsOpen) return DesignTokens.accent
+                            if (!coverButton.indicatingAction) return DesignTokens.borderHighlight
+                            return DesignTokens.isDark ? DesignTokens.accentLight : Qt.alpha(DesignTokens.accent, 0.72)
+                        }
+                        Behavior on border.color { ColorAnimation { duration: DesignTokens.animFast } }
                     }
                 }
 
                 MouseArea {
                     id: coverMa
                     anchors.fill: parent
+                    enabled: root.controller.hasTrack
                     hoverEnabled: true
-                    cursorShape: root.controller.hasTrack ? Qt.PointingHandCursor : Qt.ArrowCursor
-                    onClicked: if (root.controller.hasTrack) root.toggleLyrics()
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.toggleLyrics()
                 }
             }
 
@@ -145,12 +223,40 @@ Rectangle {
                         font.weight: Font.DemiBold
                     }
 
-                    IconBtn {
+                    Item {
+                        id: favBtn
                         visible: root.controller.hasTrack && root.controller.trackId >= 0
-                        implicitWidth: 24; implicitHeight: 24; iconSize: 14
-                        iconName: root.controller.trackIsFavorite ? "heart_filled" : "heart"
-                        active: root.controller.trackIsFavorite
-                        onClicked: root.toggleFavorite()
+                        implicitWidth: 24
+                        implicitHeight: 24
+                        property real popScale: 1.0
+                        scale: popScale
+
+                        SequentialAnimation {
+                            id: heartPopAnim
+                            NumberAnimation { target: favBtn; property: "popScale"; to: 1.35; duration: 110; easing.type: Easing.OutQuad }
+                            NumberAnimation { target: favBtn; property: "popScale"; to: 0.92; duration: 95; easing.type: Easing.InOutQuad }
+                            NumberAnimation { target: favBtn; property: "popScale"; to: 1.0; duration: 130; easing.type: Easing.OutBack }
+                        }
+
+                        IconGlyph {
+                            anchors.centerIn: parent
+                            name: root.controller.trackIsFavorite ? "heart_filled" : "heart"
+                            size: 14
+                            color: root.controller.trackIsFavorite
+                                ? DesignTokens.accent
+                                : (favMa.containsMouse ? DesignTokens.textPrimary : DesignTokens.textTertiary)
+                        }
+
+                        MouseArea {
+                            id: favMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                heartPopAnim.restart()
+                                root.toggleFavorite()
+                            }
+                        }
                     }
                 }
 
@@ -167,7 +273,7 @@ Rectangle {
 
                 RowLayout {
                     spacing: 6
-                    visible: root.controller.hasTrack
+                    visible: root.controller.exclusiveActive
 
                     FormatBadge {
                         compact: true
@@ -192,76 +298,125 @@ Rectangle {
             }
         }
 
-        // Center: Transport buttons + sleek seek bar with hover time tooltip
+        // Center: Transport buttons + interactive seek bar with floating hover time pill
         ColumnLayout {
             Layout.fillWidth: true
-            spacing: 6
+            spacing: 4
+            z: 10
 
             RowLayout {
                 Layout.alignment: Qt.AlignHCenter
-                spacing: 10
+                spacing: root.compact ? 9 : 15
 
-                IconBtn {
+                DockIconBtn {
                     iconName: "shuffle"
                     iconSize: 15
                     active: root.controller.shuffle
+                    showActiveDot: true
                     onClicked: root.controller.shuffle = !root.controller.shuffle
                 }
-                IconBtn {
+
+                DockIconBtn {
                     iconName: "prev"
                     iconSize: 17
                     onClicked: root.controller.previous()
                 }
-                IconBtn {
-                    primary: true
-                    iconName: root.controller.isPlaying ? "pause" : "play"
-                    iconSize: 17
-                    onClicked: root.controller.togglePlayPause()
+
+                // Primary playback button.
+                Item {
+                    id: playPauseBtn
+                    implicitWidth: 38
+                    implicitHeight: 38
+
+                    scale: playMa.pressed ? 0.90 : (playMa.containsMouse ? 1.07 : 1.0)
+                    Behavior on scale {
+                        NumberAnimation { duration: 160; easing.type: Easing.OutBack; easing.overshoot: 1.15 }
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: height / 2
+                        color: playMa.pressed ? Qt.darker(DesignTokens.accent, 1.15) : DesignTokens.accent
+
+                        IconGlyph {
+                            anchors.centerIn: parent
+                            anchors.horizontalCenterOffset: root.controller.isPlaying ? 0 : 1
+                            name: root.controller.isPlaying ? "pause" : "play"
+                            size: 19
+                            color: DesignTokens.playbackInk
+                        }
+                    }
+
+                    MouseArea {
+                        id: playMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.controller.togglePlayPause()
+                    }
                 }
-                IconBtn {
+
+                DockIconBtn {
                     iconName: "next"
                     iconSize: 17
                     onClicked: root.controller.next()
                 }
-                IconBtn {
+
+                DockIconBtn {
                     iconName: root.controller.repeatMode === 2 ? "repeat_one" : "repeat"
                     iconSize: 15
                     active: root.controller.repeatMode !== 0
+                    showActiveDot: true
                     onClicked: root.controller.cycleRepeatMode()
                 }
             }
 
             RowLayout {
                 Layout.fillWidth: true
-                Layout.maximumWidth: 540
+                Layout.maximumWidth: 550
                 Layout.alignment: Qt.AlignHCenter
-                spacing: 8
+                spacing: 9
 
                 Text {
                     text: root.controller.formatTime(seekMa.pressed ? seekMa.hoverRatio * root.controller.durationMs : root.controller.positionMs)
-                    color: DesignTokens.textTertiary
+                    color: seekMa.pressed ? DesignTokens.accent : DesignTokens.textTertiary
                     font.family: DesignTokens.fontFamily
                     font.pixelSize: 11
+                    font.weight: seekMa.pressed ? Font.DemiBold : Font.Normal
                     font.features: ({ "tnum": 1 })
-                    Layout.preferredWidth: 38
+                    Layout.preferredWidth: 30
                     horizontalAlignment: Text.AlignRight
                 }
 
                 Item {
                     id: seekTrack
                     Layout.fillWidth: true
-                    implicitHeight: 18
+                    implicitHeight: 20
+                    z: 20
 
                     readonly property real ratio: root.controller.durationMs > 0
                         ? Math.max(0.0, Math.min(1.0, (seekMa.pressed ? seekMa.hoverRatio : (root.controller.positionMs / root.controller.durationMs))))
                         : 0.0
 
                     Rectangle {
+                        id: seekGroove
                         anchors.verticalCenter: parent.verticalCenter
                         width: parent.width
-                        height: seekMa.containsMouse || seekMa.pressed ? 5 : 4
+                        height: (seekMa.containsMouse || seekMa.pressed) ? 6 : 4
                         radius: height / 2
-                        color: DesignTokens.isDark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.10)
+                        color: DesignTokens.playbackRail
+                        Behavior on height { NumberAnimation { duration: 130; easing.type: Easing.OutCubic } }
+
+                        // Ghost hover preview bar
+                        Rectangle {
+                            visible: root.controller.durationMs > 0
+                            width: parent.width * seekMa.hoverRatio
+                            height: parent.height
+                            radius: parent.radius
+                            color: DesignTokens.isDark ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(0, 0, 0, 0.12)
+                            opacity: seekMa.containsMouse ? 1.0 : 0.0
+                            Behavior on opacity { NumberAnimation { duration: 120 } }
+                        }
 
                         Rectangle {
                             width: parent.width * seekTrack.ratio
@@ -271,21 +426,59 @@ Rectangle {
                         }
                     }
 
+                    // Tactile seek thumb
                     Rectangle {
-                        visible: seekMa.containsMouse || seekMa.pressed
-                        width: 12; height: 12; radius: 6
+                        width: 13
+                        height: 13
+                        radius: 6.5
                         anchors.verticalCenter: parent.verticalCenter
                         x: Math.max(0, Math.min(parent.width - width, parent.width * seekTrack.ratio - width / 2))
                         color: "#ffffff"
                         border.width: 2
                         border.color: DesignTokens.accent
+                        scale: seekMa.pressed ? 1.24 : (seekMa.containsMouse && root.controller.durationMs > 0 ? 1.0 : 0.0)
+                        opacity: (seekMa.containsMouse || seekMa.pressed) && root.controller.durationMs > 0 ? 1.0 : 0.0
+                        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack; easing.overshoot: 1.15 } }
+                        Behavior on opacity { NumberAnimation { duration: 120 } }
+                    }
+
+                    // Floating hover time-preview capsule
+                    Rectangle {
+                        id: hoverTimePill
+                        readonly property bool shown: (seekMa.containsMouse || seekMa.pressed) && root.controller.durationMs > 0
+                        visible: opacity > 0.01
+                        opacity: shown ? 1.0 : 0.0
+                        scale: shown ? 1.0 : 0.88
+                        z: 50
+                        width: hoverTimeLabel.implicitWidth + 14
+                        height: 20
+                        radius: 10
+                        y: -21
+                        x: Math.max(0, Math.min(seekTrack.width - width, seekTrack.width * seekMa.hoverRatio - width / 2))
+                        color: DesignTokens.surfaceElevated
+                        border.width: 1
+                        border.color: DesignTokens.borderHighlight
+
+                        Behavior on opacity { NumberAnimation { duration: 120 } }
+                        Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutBack } }
+
+                        Text {
+                            id: hoverTimeLabel
+                            anchors.centerIn: parent
+                            text: root.controller.formatTime(seekMa.hoverRatio * root.controller.durationMs)
+                            color: DesignTokens.textPrimary
+                            font.family: DesignTokens.fontFamily
+                            font.pixelSize: 10
+                            font.weight: Font.DemiBold
+                            font.features: ({ "tnum": 1 })
+                        }
                     }
 
                     MouseArea {
                         id: seekMa
                         anchors.fill: parent
                         hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
+                        cursorShape: root.controller.durationMs > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
                         property real hoverRatio: 0.0
 
                         function updateRatio(mx) {
@@ -294,8 +487,10 @@ Rectangle {
                         onPositionChanged: (mouse) => updateRatio(mouse.x)
                         onPressed: (mouse) => updateRatio(mouse.x)
                         onReleased: (mouse) => {
-                            updateRatio(mouse.x)
-                            root.controller.seekRatio(hoverRatio)
+                            if (root.controller.durationMs > 0) {
+                                updateRatio(mouse.x)
+                                root.controller.seekRatio(hoverRatio)
+                            }
                         }
                     }
                 }
@@ -306,78 +501,63 @@ Rectangle {
                     font.family: DesignTokens.fontFamily
                     font.pixelSize: 11
                     font.features: ({ "tnum": 1 })
-                    Layout.preferredWidth: 38
+                    Layout.preferredWidth: 30
                 }
             }
         }
 
-        // Right: Lyrics, EQ, Info, Queue, Volume
+        // Right: Lyrics, EQ, Info, Queue, Mute + SonoraSlider Volume
         RowLayout {
-            Layout.preferredWidth: 260
+            Layout.fillWidth: false
+            Layout.preferredWidth: root.compact ? 226 : 266
             Layout.alignment: Qt.AlignRight
-            spacing: 4
+            spacing: root.compact ? 4 : 6
 
-            IconBtn {
+            Item { Layout.fillWidth: true }
+
+            DockIconBtn {
                 iconName: "lyrics"
                 iconSize: 15
                 active: root.lyricsOpen
                 onClicked: root.toggleLyrics()
             }
-            IconBtn {
+
+            DockIconBtn {
                 iconName: "eq"
                 iconSize: 15
                 active: root.eqOpen
                 onClicked: root.toggleEq()
             }
-            IconBtn {
+
+            DockIconBtn {
                 iconName: "info"
                 iconSize: 15
                 visible: root.controller.hasTrack
                 onClicked: root.openTrackInfo()
             }
-            IconBtn {
+
+            DockIconBtn {
                 iconName: "queue"
                 iconSize: 15
                 active: root.queueOpen
                 onClicked: root.toggleQueue()
             }
 
-            IconBtn {
+            DockIconBtn {
                 iconName: (root.controller.muted || root.controller.volume <= 0.001) ? "volume_mute" : "volume"
                 iconSize: 15
                 onClicked: root.controller.muted = !root.controller.muted
             }
 
-            Item {
-                id: volTrack
-                Layout.preferredWidth: 84
-                implicitHeight: 18
-
-                Rectangle {
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: parent.width
-                    height: 4
-                    radius: 2
-                    color: DesignTokens.isDark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.10)
-
-                    Rectangle {
-                        width: parent.width * (root.controller.muted ? 0.0 : root.controller.volume)
-                        height: parent.height
-                        radius: 2
-                        color: DesignTokens.textPrimary
-                    }
-                }
-
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    function applyVol(mx) {
-                        const v = Math.max(0.0, Math.min(1.0, mx / Math.max(1, width)))
-                        root.controller.muted = false
-                        root.controller.volume = v
-                    }
-                    onPressed: (mouse) => applyVol(mouse.x)
-                    onPositionChanged: (mouse) => { if (pressed) applyVol(mouse.x) }
+            SonoraSlider {
+                Layout.preferredWidth: root.compact ? 58 : 78
+                from: 0.0
+                to: 1.0
+                value: root.controller.muted ? 0.0 : root.controller.volume
+                accentColor: DesignTokens.accent
+                onMoved: (v) => {
+                    root.controller.muted = false
+                    root.controller.volume = v
                 }
             }
         }

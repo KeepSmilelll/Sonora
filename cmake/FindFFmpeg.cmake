@@ -1,16 +1,22 @@
-# FindFFmpeg.cmake — Locates FFmpeg 8.1+ (avformat, avcodec, avutil, swresample)
-# Supports FFMPEG_ROOT / $ENV{FFMPEG_ROOT} (Windows BtbN/gyan.dev or custom prefix)
+# FindFFmpeg.cmake — Locates FFmpeg 9.0.2 (avformat, avcodec, avutil, swresample)
+# Supports FFMPEG_ROOT / $ENV{FFMPEG_ROOT} (Windows gyan.dev/BtbN or custom prefix)
 # and pkg-config on Linux/macOS.
 
 include(FindPackageHandleStandardArgs)
 
 set(_ffmpeg_hints "")
 if(DEFINED FFMPEG_ROOT AND NOT FFMPEG_ROOT STREQUAL "")
-    list(APPEND _ffmpeg_hints "${FFMPEG_ROOT}")
+    file(TO_CMAKE_PATH "${FFMPEG_ROOT}" _ffmpeg_root_norm)
+    list(APPEND _ffmpeg_hints "${_ffmpeg_root_norm}")
 endif()
 if(DEFINED ENV{FFMPEG_ROOT} AND NOT "$ENV{FFMPEG_ROOT}" STREQUAL "")
-    list(APPEND _ffmpeg_hints "$ENV{FFMPEG_ROOT}")
+    file(TO_CMAKE_PATH "$ENV{FFMPEG_ROOT}" _ffmpeg_env_norm)
+    list(APPEND _ffmpeg_hints "${_ffmpeg_env_norm}")
 endif()
+if(WIN32 AND NOT _ffmpeg_hints AND EXISTS "D:/Setup/ffmpeg-9.0.2-full_build-shared/include/libavcodec/avcodec.h")
+    list(APPEND _ffmpeg_hints "D:/Setup/ffmpeg-9.0.2-full_build-shared")
+endif()
+list(REMOVE_DUPLICATES _ffmpeg_hints)
 
 find_package(PkgConfig QUIET)
 
@@ -19,17 +25,33 @@ function(_sonora_find_ffmpeg_component comp header libname)
         pkg_check_modules(PC_${comp} QUIET lib${libname})
     endif()
 
-    find_path(FFmpeg_${comp}_INCLUDE_DIR
-        NAMES ${header}
-        HINTS ${_ffmpeg_hints} ${PC_${comp}_INCLUDE_DIRS}
-        PATH_SUFFIXES include
-    )
-
-    find_library(FFmpeg_${comp}_LIBRARY
-        NAMES ${libname} lib${libname} lib${libname}.dll.a ${libname}.dll.a
-        HINTS ${_ffmpeg_hints} ${PC_${comp}_LIBRARY_DIRS}
-        PATH_SUFFIXES lib lib/x64 bin
-    )
+    if(_ffmpeg_hints)
+        # Search explicit FFMPEG_ROOT hints exclusively first so older FFmpeg installs on PATH
+        # cannot shadow the configured FFmpeg 9.0.2 SDK.
+        find_path(FFmpeg_${comp}_INCLUDE_DIR
+            NAMES ${header}
+            PATHS ${_ffmpeg_hints}
+            PATH_SUFFIXES include
+            NO_DEFAULT_PATH
+        )
+        find_library(FFmpeg_${comp}_LIBRARY
+            NAMES ${libname} lib${libname} lib${libname}.dll.a ${libname}.dll.a
+            PATHS ${_ffmpeg_hints}
+            PATH_SUFFIXES lib lib/x64 bin
+            NO_DEFAULT_PATH
+        )
+    else()
+        find_path(FFmpeg_${comp}_INCLUDE_DIR
+            NAMES ${header}
+            HINTS ${PC_${comp}_INCLUDE_DIRS}
+            PATH_SUFFIXES include
+        )
+        find_library(FFmpeg_${comp}_LIBRARY
+            NAMES ${libname} lib${libname} lib${libname}.dll.a ${libname}.dll.a
+            HINTS ${PC_${comp}_LIBRARY_DIRS}
+            PATH_SUFFIXES lib lib/x64 bin
+        )
+    endif()
 
     if(FFmpeg_${comp}_INCLUDE_DIR AND FFmpeg_${comp}_LIBRARY)
         set(FFmpeg_${comp}_FOUND TRUE PARENT_SCOPE)
@@ -60,15 +82,41 @@ if(FFmpeg_avcodec_FOUND AND FFmpeg_avformat_FOUND)
     set_property(TARGET FFmpeg::avformat APPEND PROPERTY INTERFACE_LINK_LIBRARIES FFmpeg::avcodec FFmpeg::avutil)
 endif()
 
-# Locate runtime DLLs on Windows for post-build deployment
-if(WIN32 AND _ffmpeg_hints)
-    file(GLOB FFMPEG_RUNTIME_DLLS
-        "${_ffmpeg_hints}/bin/avcodec*.dll"
-        "${_ffmpeg_hints}/bin/avformat*.dll"
-        "${_ffmpeg_hints}/bin/avutil*.dll"
-        "${_ffmpeg_hints}/bin/swresample*.dll"
+# Locate runtime DLLs and ffmpeg CLI binary from the matched prefix
+set(_ffmpeg_runtime_dlls "")
+set(_ffmpeg_bin_dir "")
+foreach(_hint ${_ffmpeg_hints})
+    if(WIN32)
+        file(GLOB _candidate_dlls
+            "${_hint}/bin/avcodec*.dll"
+            "${_hint}/bin/avformat*.dll"
+            "${_hint}/bin/avutil*.dll"
+            "${_hint}/bin/swresample*.dll"
+        )
+        if(_candidate_dlls)
+            set(_ffmpeg_runtime_dlls "${_candidate_dlls}")
+            set(_ffmpeg_bin_dir "${_hint}/bin")
+            break()
+        endif()
+    elseif(EXISTS "${_hint}/bin")
+        set(_ffmpeg_bin_dir "${_hint}/bin")
+        break()
+    endif()
+endforeach()
+
+if(WIN32)
+    set(FFMPEG_RUNTIME_DLLS "${_ffmpeg_runtime_dlls}" CACHE INTERNAL "FFmpeg runtime DLLs")
+endif()
+set(FFMPEG_BIN_DIR "${_ffmpeg_bin_dir}" CACHE INTERNAL "FFmpeg binary directory")
+
+if(_ffmpeg_bin_dir)
+    find_program(FFMPEG_EXECUTABLE
+        NAMES ffmpeg
+        PATHS "${_ffmpeg_bin_dir}"
+        NO_DEFAULT_PATH
     )
-    set(FFMPEG_RUNTIME_DLLS "${FFMPEG_RUNTIME_DLLS}" CACHE INTERNAL "FFmpeg runtime DLLs")
+else()
+    find_program(FFMPEG_EXECUTABLE NAMES ffmpeg)
 endif()
 
 find_package_handle_standard_args(FFmpeg
@@ -78,3 +126,11 @@ find_package_handle_standard_args(FFmpeg
         FFmpeg_avutil_LIBRARY   FFmpeg_avutil_INCLUDE_DIR
         FFmpeg_swresample_LIBRARY FFmpeg_swresample_INCLUDE_DIR
 )
+
+if(FFmpeg_FOUND)
+    message(STATUS "Sonora FFmpeg include: ${FFmpeg_avcodec_INCLUDE_DIR}")
+    message(STATUS "Sonora FFmpeg avcodec: ${FFmpeg_avcodec_LIBRARY}")
+    if(WIN32 AND FFMPEG_RUNTIME_DLLS)
+        message(STATUS "Sonora FFmpeg runtime DLLs: ${FFMPEG_RUNTIME_DLLS}")
+    endif()
+endif()

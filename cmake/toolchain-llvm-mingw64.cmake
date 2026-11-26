@@ -14,7 +14,7 @@ set(CMAKE_STRIP "${LLVM_MINGW_ROOT}/bin/x86_64-w64-mingw32-strip" CACHE FILEPATH
 set(CMAKE_FIND_ROOT_PATH
     "${LLVM_MINGW_ROOT}/x86_64-w64-mingw32"
     "/home/antigravity/deps/qt-win/6.9.1/llvm-mingw_64"
-    "/home/antigravity/deps/ffmpeg-8.1-win64"
+    "/home/antigravity/deps/ffmpeg-9.0.2-win64"
 )
 
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)

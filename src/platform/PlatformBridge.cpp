@@ -1,5 +1,21 @@
 #include "platform/PlatformBridge.h"
 
+#include <QVariantMap>
+#include <QWindow>
+
+namespace sonora {
+
+void PlatformBridge::toggleMaximize(QWindow* window) {
+    if (!window) return;
+    if (window->visibility() == QWindow::Maximized) {
+        window->showNormal();
+    } else {
+        window->showMaximized();
+    }
+}
+
+} // namespace sonora
+
 #ifdef _WIN32
 #include "platform/win32/Win32WindowHelper.h"
 #include "platform/win32/Win32SmtcController.h"
@@ -44,6 +60,31 @@ public:
 
     void setTitleBarHeight(int heightPx) override {
         windowHelper_.setTitleBarHeight(heightPx);
+    }
+
+    void setTitleBarDragEnabled(bool enabled) override {
+        windowHelper_.setTitleBarDragEnabled(enabled);
+    }
+
+    void setTitleBarInteractiveRects(const QVariantList& rects) override {
+        QVector<QRectF> parsed;
+        parsed.reserve(rects.size());
+        for (const QVariant& v : rects) {
+            const QVariantMap m = v.toMap();
+            const qreal w = m.value(QStringLiteral("width")).toReal();
+            const qreal h = m.value(QStringLiteral("height")).toReal();
+            if (w > 0.0 && h > 0.0) {
+                parsed.push_back(QRectF(
+                    m.value(QStringLiteral("x")).toReal(),
+                    m.value(QStringLiteral("y")).toReal(),
+                    w, h));
+            }
+        }
+        windowHelper_.setInteractiveRects(parsed);
+    }
+
+    void toggleMaximize(QWindow* window) override {
+        windowHelper_.toggleMaximize(window);
     }
 
     void initTray(const QString& tooltip) override { tray_.init(tooltip); }

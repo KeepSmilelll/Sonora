@@ -213,7 +213,7 @@ private:
     QVariantList audioDevices_;
     QString memoryUsageText_;
     QString toastMessage_;
-    QString inlineCoverDataUrl_;
+    QString trackCoverUrl_;
     UrlExpanderFn urlExpander_;
     CoverLoaderFn coverLoader_;
 };

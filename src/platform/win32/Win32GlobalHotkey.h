@@ -1,6 +1,7 @@
 #pragma once
 
-#ifdef _WIN32
+#include <QtGlobal>
+#if defined(_WIN32) || defined(Q_OS_WIN)
 
 #include <QAbstractNativeEventFilter>
 #include <QObject>

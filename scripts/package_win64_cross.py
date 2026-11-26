@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Packages cross-compiled Sonora.exe with all Qt 6.9.1, FFmpeg 8.1, and LLVM-MinGW runtime dependencies."""
+"""Packages cross-compiled Sonora.exe with all Qt 6.9.1, FFmpeg 9.0.2, and LLVM-MinGW runtime dependencies."""
 import os
 import pathlib
 import re
@@ -12,7 +12,7 @@ BUILD_EXE = ROOT / "build/win64-cross-release/Sonora.exe"
 OUT_DIR = ROOT / "release/Sonora-win64"
 
 QT_WIN = pathlib.Path("/home/antigravity/deps/qt-win/6.9.1/llvm-mingw_64")
-FFMPEG_WIN = pathlib.Path("/home/antigravity/deps/ffmpeg-8.1-win64")
+FFMPEG_WIN = pathlib.Path("/home/antigravity/deps/ffmpeg-9.0.2-win64")
 LLVM_MINGW = pathlib.Path("/home/antigravity/deps/llvm-mingw")
 OBJDUMP = str(LLVM_MINGW / "bin/x86_64-w64-mingw32-objdump")
 STRIP = str(LLVM_MINGW / "bin/x86_64-w64-mingw32-strip")
@@ -105,9 +105,10 @@ def main():
     shutil.copy2(BUILD_EXE, dst_exe)
     subprocess.run([STRIP, "--strip-unneeded", str(dst_exe)], check=False)
 
-    # 2. Copy FFmpeg 8.1.3 DLLs
-    for dll in (FFMPEG_WIN / "bin").glob("*.dll"):
-        shutil.copy2(dll, OUT_DIR / dll.name)
+    # 2. Copy FFmpeg 9.0.2 core audio DLLs
+    for pat in ("avcodec*.dll", "avformat*.dll", "avutil*.dll", "swresample*.dll"):
+        for dll in (FFMPEG_WIN / "bin").glob(pat):
+            shutil.copy2(dll, OUT_DIR / dll.name)
 
     # 3. Copy Qt platform and imageformat plugins (zero QtWidgets)
     plugin_copies = [

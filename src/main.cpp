@@ -16,6 +16,7 @@
 #include <QCommandLineParser>
 #include <QDir>
 #include <QGuiApplication>
+#include <QIcon>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
@@ -34,6 +35,12 @@ int main(int argc, char* argv[]) {
     app.setApplicationName(QStringLiteral("Sonora"));
     app.setApplicationVersion(QStringLiteral("1.0.0"));
     app.setOrganizationName(QStringLiteral("Sonora"));
+    app.setWindowIcon(QIcon(QStringLiteral(":/resources/sonora.ico")));
+#ifdef _WIN32
+    // Manage application exit explicitly so minimizing to system tray or toggling Mini Mode
+    // never terminates the background player unexpectedly.
+    app.setQuitOnLastWindowClosed(false);
+#endif
 
     QCommandLineParser parser;
     parser.addHelpOption();
@@ -101,8 +108,9 @@ int main(int argc, char* argv[]) {
 
     if (!qmlEngine.rootObjects().isEmpty()) {
         if (auto* mainWin = qobject_cast<QQuickWindow*>(qmlEngine.rootObjects().constFirst())) {
-            platform->attachMainWindow(mainWin, 44);
+            platform->attachMainWindow(mainWin, 46);
             platform->setWindowBackdrop(mainWin, themeManager.backdropMode(), themeManager.isDark());
+            mainWin->show();
             platform->initMediaSession(mainWin);
             platform->initTray(QStringLiteral("Sonora"));
             platform->setGlobalHotkeysEnabled(settings.globalHotkeysEnabled());
@@ -112,7 +120,17 @@ int main(int argc, char* argv[]) {
             };
             QObject::connect(&themeManager, &sonora::ThemeManager::themeChanged, mainWin, updateBackdrop);
             QObject::connect(&themeManager, &sonora::ThemeManager::backdropChanged, mainWin, updateBackdrop);
-            QObject::connect(platform.get(), &sonora::PlatformBridge::quitRequested, &app, &QCoreApplication::quit);
+            QObject::connect(platform.get(), &sonora::PlatformBridge::quitRequested, &app,
+                             [mainWin, &platform]() {
+                platform->markQuitting();
+                platform->shutdownTray();
+                if (mainWin) {
+                    mainWin->setProperty("forceQuit", true);
+                    mainWin->setProperty("miniModeOpen", false);
+                    mainWin->close();
+                }
+                QCoreApplication::exit(0);
+            }, Qt::QueuedConnection);
         }
     }
 
@@ -131,7 +149,7 @@ int main(int argc, char* argv[]) {
             std::cout << "[SMOKE] Sonora Full App loaded cleanly. RSS="
                       << mem.workingSetMb << " MB, Private="
                       << mem.privateBytesMb << " MB" << std::endl;
-            app.quit();
+            platform->requestQuit();
         });
     }
 

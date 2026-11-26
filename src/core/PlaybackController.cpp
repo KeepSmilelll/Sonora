@@ -3,6 +3,7 @@
 #include "core/AppSettings.h"
 #include "core/MemoryStats.h"
 #include "core/ThemeManager.h"
+#include "library/CoverArtProvider.h"
 #include "platform/PlatformBridge.h"
 
 #include <QBuffer>
@@ -257,10 +258,7 @@ int PlaybackController::queueCount() const {
 }
 
 QString PlaybackController::trackCoverUrl() const {
-    if (!currentTrack_.coverHash.isEmpty()) {
-        return QStringLiteral("image://cover/%1?size=360").arg(currentTrack_.coverHash);
-    }
-    return inlineCoverDataUrl_;
+    return trackCoverUrl_;
 }
 
 QString PlaybackController::outputStatusBadge() const {
@@ -455,54 +453,56 @@ QString PlaybackController::formatTime(qint64 ms) {
 }
 
 void PlaybackController::updateCoverAndAmbient(const TrackInfo& track) {
-    inlineCoverDataUrl_.clear();
+    trackCoverUrl_.clear();
     QImage coverImg;
 
     // 0. Fast path: reuse already-cached thumbnail from CoverArtProvider LRU (zero audio reopen)
     if (!track.coverHash.isEmpty() && coverLoader_) {
         coverImg = coverLoader_(track.coverHash);
+        if (!coverImg.isNull()) {
+            trackCoverUrl_ = QStringLiteral("image://cover/%1?size=360").arg(track.coverHash);
+        }
     }
 
     // 1. Embedded cover packet fallback (for ad-hoc drag-and-drop unindexed files)
-    if (coverImg.isNull()) {
+    if (coverImg.isNull() && !track.filePath.isEmpty()) {
         const QByteArray embedded = FFmpegDecoder::extractEmbeddedCover(track.filePath);
         if (!embedded.isEmpty()) {
             QBuffer buf;
             buf.setData(embedded);
             buf.open(QIODevice::ReadOnly);
             QImageReader reader(&buf);
-            reader.setScaledSize(QSize(320, 320));
+            reader.setAutoTransform(true);
+            const QSize size = reader.size();
+            if (size.width() > 360 || size.height() > 360) {
+                reader.setScaledSize(size.scaled(360, 360, Qt::KeepAspectRatio));
+            }
             coverImg = reader.read();
         }
     }
 
-    // 2. Folder cover fallback (cover.jpg, folder.png, front.jpg, album.jpg)
-    if (coverImg.isNull() && !track.filePath.isEmpty()) {
-        const QDir dir = QFileInfo(track.filePath).dir();
-        static const QStringList kNames = {
-            QStringLiteral("cover.jpg"),  QStringLiteral("cover.png"),  QStringLiteral("cover.webp"),
-            QStringLiteral("folder.jpg"), QStringLiteral("folder.png"), QStringLiteral("front.jpg"),
-            QStringLiteral("front.png"),  QStringLiteral("album.jpg"),  QStringLiteral("album.png")
-        };
-        for (const QString& n : kNames) {
-            const QString candidate = dir.filePath(n);
-            if (QFileInfo::exists(candidate)) {
-                QImageReader reader(candidate);
-                reader.setScaledSize(QSize(320, 320));
-                coverImg = reader.read();
-                if (!coverImg.isNull()) break;
+    // Folder and same-name cover fallback, including tracks opened outside the library.
+    if (coverImg.isNull()) {
+        for (const QString& candidate : CoverArtProvider::folderCoverPaths(track.filePath)) {
+            QImageReader reader(candidate);
+            reader.setAutoTransform(true);
+            const QSize size = reader.size();
+            if (size.width() > 360 || size.height() > 360) {
+                reader.setScaledSize(size.scaled(360, 360, Qt::KeepAspectRatio));
             }
+            coverImg = reader.read();
+            if (!coverImg.isNull()) break;
         }
     }
 
     if (!coverImg.isNull()) {
-        if (track.coverHash.isEmpty()) {
-            // Compact JPEG data URL for non-indexed drag-and-drop tracks (kept tiny < 25 KB)
+        if (trackCoverUrl_.isEmpty()) {
             QByteArray jpegBytes;
             QBuffer out(&jpegBytes);
-            out.open(QIODevice::WriteOnly);
-            coverImg.save(&out, "JPG", 82);
-            inlineCoverDataUrl_ = QStringLiteral("data:image/jpeg;base64,") + QString::fromLatin1(jpegBytes.toBase64());
+            if (out.open(QIODevice::WriteOnly) && coverImg.save(&out, "JPG", 82)) {
+                trackCoverUrl_ = QStringLiteral("data:image/jpeg;base64,")
+                    + QString::fromLatin1(jpegBytes.toBase64());
+            }
         }
         if (theme_) {
             theme_->updateFromCoverImage(coverImg);
