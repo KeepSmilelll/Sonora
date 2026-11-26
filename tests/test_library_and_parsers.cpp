@@ -3,6 +3,7 @@
 #include "library/LibraryDatabase.h"
 #include "library/LibraryScanner.h"
 #include "library/M3uPlaylistIO.h"
+#include "lyrics/LyricsController.h"
 #include "lyrics/LyricsParser.h"
 
 #include <QBuffer>
@@ -382,6 +383,43 @@ private slots:
                                     .arg(provider.currentRamCacheBytes())
                                     .arg(kCapBytes)));
         }
+    }
+
+    void lyricsControllerExposesWordTokensAndProgress() {
+        LyricsController ctrl;
+        const QString enhanced = QStringLiteral(
+            "[00:01.00]<00:01.00>Hel<00:01.50>lo <00:02.00>world\n"
+            "[00:03.00]<00:03.00>Next\n");
+        ctrl.loadForTrack({}, enhanced);
+
+        QVERIFY(ctrl.hasLyrics());
+        QVERIFY(ctrl.isSynced());
+        QVERIFY(ctrl.hasEnhancedWords());
+        QCOMPARE(ctrl.rowCount(), 2);
+        QVERIFY(ctrl.data(ctrl.index(0), LyricsController::HasWordsRole).toBool());
+
+        const QVariantList tokens = ctrl.data(ctrl.index(0), LyricsController::WordTokensRole).toList();
+        QCOMPARE(tokens.size(), 3);
+        QCOMPARE(tokens[0].toMap().value(QStringLiteral("startMs")).toLongLong(), 1000);
+        QCOMPARE(tokens[0].toMap().value(QStringLiteral("endMs")).toLongLong(), 1500);
+        QCOMPARE(tokens[0].toMap().value(QStringLiteral("text")).toString(), QStringLiteral("Hel"));
+        QCOMPARE(tokens[2].toMap().value(QStringLiteral("endMs")).toLongLong(), 3000);
+
+        ctrl.updatePositionMs(1250);
+        QCOMPARE(ctrl.activeLineIndex(), 0);
+        QCOMPARE(ctrl.activeLineText(), QStringLiteral("Hello world"));
+        QCOMPARE(ctrl.effectivePositionMs(), 1250);
+        QVERIFY(ctrl.activeLineProgress() > 0.10 && ctrl.activeLineProgress() < 0.30);
+
+        ctrl.updatePositionMs(2500);
+        QVERIFY(ctrl.activeLineProgress() > 0.75 && ctrl.activeLineProgress() < 0.99);
+
+        const QString plainSynced = QStringLiteral("[00:01.00]Line one\n[00:03.00]Line two\n");
+        ctrl.loadForTrack({}, plainSynced);
+        QVERIFY(!ctrl.hasEnhancedWords());
+        ctrl.updatePositionMs(2000);
+        QCOMPARE(ctrl.activeLineIndex(), 0);
+        QVERIFY(std::abs(ctrl.activeLineProgress() - 0.5) < 0.01);
     }
 };
 

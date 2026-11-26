@@ -1,89 +1,51 @@
 import QtQuick
 import Sonora.UI
 
-// Multi-layered fluid aurora cover backdrop (zero offscreen FBO blur cost)
+// GPU procedural fluid aurora backdrop powered by single-draw-call FluidAuroraItem
 Item {
     id: root
 
     property bool immersive: false
+    property real immersiveFactor: immersive ? 1.0 : 0.0
     property bool playing: false
+    property real audioEnergy: 0.0
 
-    readonly property bool showGlow: DesignTokens.backdropMode !== "solid"
-    readonly property real glowStrength: {
-        if (!showGlow) return 0.0
-        if (immersive) return DesignTokens.isDark ? 0.94 : 0.88
-        if (DesignTokens.nativeBackdropActive) return DesignTokens.isDark ? 0.28 : 0.20
-        return DesignTokens.isDark ? 0.72 : 0.60
-    }
-
-    property color animatedPrimary: DesignTokens.ambientPrimary
-    property color animatedSecondary: DesignTokens.ambientSecondary
-    property color animatedAccent: DesignTokens.accent
-    property real breathPhase: 1.0
-
-    Behavior on animatedPrimary {
-        ColorAnimation { duration: 750; easing.type: Easing.OutCubic }
-    }
-    Behavior on animatedSecondary {
-        ColorAnimation { duration: 750; easing.type: Easing.OutCubic }
-    }
-    Behavior on animatedAccent {
-        ColorAnimation { duration: 750; easing.type: Easing.OutCubic }
-    }
-
-    SequentialAnimation on breathPhase {
-        running: root.visible && root.playing && root.glowStrength > 0.01
-        loops: Animation.Infinite
-        NumberAnimation { to: 0.84; duration: 3400; easing.type: Easing.InOutSine }
-        NumberAnimation { to: 1.0;  duration: 3400; easing.type: Easing.InOutSine }
+    readonly property bool isSolid: DesignTokens.backdropMode === "solid"
+    readonly property real auroraIntensity: {
+        if (isSolid) return 0.0
+        if (DesignTokens.nativeBackdropActive) {
+            return 0.34 + 0.58 * root.immersiveFactor
+        }
+        return 0.72 + 0.24 * root.immersiveFactor
     }
 
     Rectangle {
         anchors.fill: parent
-        color: root.immersive
-            ? (DesignTokens.isDark ? "#090b12" : "#f1f3fa")
-            : DesignTokens.windowBg
+        color: {
+            if (DesignTokens.nativeBackdropActive) {
+                const bg = DesignTokens.solidWindowBg
+                const alpha = 0.08 + 0.78 * root.immersiveFactor
+                return Qt.rgba(bg.r, bg.g, bg.b, alpha)
+            }
+            return DesignTokens.solidWindowBg
+        }
         Behavior on color { ColorAnimation { duration: DesignTokens.animNormal } }
     }
 
-    // Primary top-left aurora wash
-    Rectangle {
+    FluidAuroraItem {
         anchors.fill: parent
-        visible: root.glowStrength > 0.01
-        opacity: root.glowStrength * root.breathPhase
-        gradient: Gradient {
-            orientation: Gradient.Vertical
-            GradientStop { position: 0.0;  color: root.animatedPrimary }
-            GradientStop { position: 0.52; color: root.animatedSecondary }
-            GradientStop { position: 1.0;  color: "transparent" }
-        }
-    }
-
-    // Secondary diagonal counter-bloom
-    Rectangle {
-        anchors.fill: parent
-        visible: root.glowStrength > 0.01
-        opacity: root.glowStrength * 0.52
-        gradient: Gradient {
-            orientation: Gradient.Horizontal
-            GradientStop { position: 0.0;  color: Qt.rgba(root.animatedPrimary.r, root.animatedPrimary.g, root.animatedPrimary.b, 0.24) }
-            GradientStop { position: 0.55; color: "transparent" }
-            GradientStop { position: 1.0;  color: Qt.rgba(root.animatedAccent.r, root.animatedAccent.g, root.animatedAccent.b, DesignTokens.isDark ? 0.18 : 0.12) }
-        }
-    }
-
-    // Soft ambient bottom horizon tint behind Floating Playback Dock
-    Rectangle {
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: parent.height * 0.38
-        visible: root.glowStrength > 0.01
-        opacity: root.glowStrength * 0.36
-        gradient: Gradient {
-            orientation: Gradient.Vertical
-            GradientStop { position: 0.0; color: "transparent" }
-            GradientStop { position: 1.0; color: Qt.rgba(root.animatedSecondary.r, root.animatedSecondary.g, root.animatedSecondary.b, 0.55) }
-        }
+        primaryColor: DesignTokens.ambientPrimary
+        secondaryColor: DesignTokens.ambientSecondary
+        accentColor: DesignTokens.accent
+        baseColor: DesignTokens.nativeBackdropActive
+            ? Qt.rgba(DesignTokens.solidWindowBg.r, DesignTokens.solidWindowBg.g, DesignTokens.solidWindowBg.b,
+                      0.12 + 0.76 * root.immersiveFactor)
+            : DesignTokens.solidWindowBg
+        darkMode: DesignTokens.isDark
+        active: root.visible && !root.isSolid
+        playing: root.playing
+        intensity: root.auroraIntensity
+        immersiveFactor: root.immersiveFactor
+        audioEnergy: root.audioEnergy
     }
 }

@@ -14,6 +14,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(Qt6 6.9 REQUIRED COMPONENTS
     Core
     Gui
+    Network
     Qml
     Quick
     QuickControls2
@@ -108,6 +109,8 @@ set(SONORA_CORE_SOURCES
     src/ui/SpectrumVisualizerItem.cpp
     src/ui/EqCurveItem.h
     src/ui/EqCurveItem.cpp
+    src/ui/FluidAuroraItem.h
+    src/ui/FluidAuroraItem.cpp
     src/platform/PlatformBridge.h
     src/platform/PlatformBridge.cpp
 )
@@ -193,6 +196,9 @@ qt_add_qml_module(sonora
         qml/components/AmbientBackdrop.qml
         qml/components/FormatBadge.qml
         qml/components/GlassPanel.qml
+        qml/components/HeroTransitionLayer.qml
+        qml/components/NavigationRail.qml
+        qml/components/VinylDiscItem.qml
         qml/components/SonoraButton.qml
         qml/components/SonoraSwitch.qml
         qml/components/SonoraSlider.qml
@@ -204,10 +210,10 @@ qt_add_qml_module(sonora
         qml/components/QueueDrawer.qml
         qml/components/TrackInfoDialog.qml
         qml/views/TracksView.qml
-        qml/views/AlbumsView.qml
         qml/views/ArtistsView.qml
         qml/views/FoldersView.qml
         qml/views/NowPlayingOverlay.qml
+        qml/views/FocusStage.qml
         qml/views/EqDrawer.qml
         qml/views/SettingsView.qml
         qml/windows/MiniPlayerWindow.qml
@@ -222,6 +228,7 @@ qt_add_translations(sonora
 
 target_link_libraries(sonora PRIVATE
     sonora_core
+    Qt6::Network
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::QuickDialogs2

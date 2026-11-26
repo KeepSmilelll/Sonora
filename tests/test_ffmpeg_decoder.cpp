@@ -313,6 +313,37 @@ private slots:
         QVERIFY(sub2Frames >= 43500 && sub2Frames <= 44700);
     }
 
+    void switchingTracksClearsPreviousSeekPosition() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const auto firstPath = dir.filePath(QStringLiteral("first.wav"));
+        const auto secondPath = dir.filePath(QStringLiteral("second.wav"));
+        QVERIFY(writeSyntheticWav(firstPath, 440, 8000, 45.0));
+        QVERIFY(writeSyntheticWav(secondPath, 880, 8000, 45.0));
+
+        TrackInfo first, second;
+        QVERIFY(FFmpegDecoder::probeFile(firstPath, first));
+        QVERIFY(FFmpegDecoder::probeFile(secondPath, second));
+        PlaybackEngine engine(std::make_unique<MockAudioOutput>());
+        QSignalSpy tracks(&engine, &PlaybackEngine::currentTrackChanged);
+
+        engine.setQueue({first, second});
+        QTRY_COMPARE_WITH_TIMEOUT(tracks.size(), 1, 3000);
+        engine.seekMs(37000);
+        QCOMPARE(engine.positionMs(), 37000);
+
+        engine.next();
+        QTRY_COMPARE_WITH_TIMEOUT(tracks.size(), 2, 3000);
+        QCOMPARE(engine.currentTrack().filePath, secondPath);
+        QCOMPARE(engine.positionMs(), 0);
+
+        engine.seekMs(15000);
+        engine.playIndex(0);
+        QTRY_COMPARE_WITH_TIMEOUT(tracks.size(), 3, 3000);
+        QCOMPARE(engine.currentTrack().filePath, firstPath);
+        QCOMPARE(engine.positionMs(), 0);
+    }
+
     void gaplessPlaybackEngineTransition() {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());

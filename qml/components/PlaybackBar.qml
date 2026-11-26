@@ -11,19 +11,47 @@ GlassPanel {
     property bool compact: false
     property bool eqOpen: false
     property bool queueOpen: false
+    property string stageMode: "rail"
+    property string stageTab: "lyrics"
+    property real immersiveFactor: 0.0
+    property bool hideCoverForHero: false
+
+    readonly property bool showTrackIdentity: stageMode === "collapsed" || !controller.hasTrack
 
     signal toggleLyrics()
     signal toggleEq()
     signal toggleQueue()
     signal openTrackInfo()
     signal toggleFavorite()
+    signal coverClicked()
+
+    function coverAnchorItem() {
+        return coverButton
+    }
+
+    function currentVinylAngle() {
+        return dockVinyl.discRotation
+    }
+
+    function predictedCoverRectInWindow(winWidth, winHeight, targetDockWidth, isCompact) {
+        const dockX = (winWidth - targetDockWidth) * 0.5
+        const dockY = winHeight - DesignTokens.dockMarginBottom - DesignTokens.dockHeight
+        const marginL = isCompact ? 12 : 16
+        return {
+            x: Math.round(dockX + marginL),
+            y: Math.round(dockY + (DesignTokens.dockHeight - 46) * 0.5),
+            width: 46,
+            height: 46,
+            radius: 23
+        }
+    }
 
     implicitHeight: DesignTokens.dockHeight
-    radius: DesignTokens.radiusDock
-    panelColor: DesignTokens.playbackSurface
+    radius: 24
+    panelColor: immersiveFactor > 0.5 ? DesignTokens.dockImmersiveBg : DesignTokens.dockFloatingBg
     borderColor: DesignTokens.borderOuter
-    specularEnabled: false
-    shadowEnabled: false
+    specularEnabled: true
+    shadowEnabled: true
 
     component DockIconBtn: Item {
         id: btn
@@ -93,105 +121,65 @@ GlassPanel {
         anchors.rightMargin: root.compact ? 12 : 16
         spacing: root.compact ? 12 : 23
 
-        // Left: Cover + Track metadata + Hi-Res / Output badges
+        // Left: Cover and track metadata (auto-collapses cleanly when FocusStage displays cover)
         RowLayout {
+            id: trackIdentityBox
             Layout.fillWidth: false
-            Layout.preferredWidth: root.compact ? 194 : 268
-            Layout.maximumWidth: root.compact ? 194 : 268
+            Layout.preferredWidth: root.showTrackIdentity ? (root.compact ? 190 : 254) : 0
+            Layout.maximumWidth: Layout.preferredWidth
+            opacity: root.showTrackIdentity ? 1.0 : 0.0
+            visible: Layout.preferredWidth > 2
+            clip: true
             spacing: 10
+
+            Behavior on Layout.preferredWidth {
+                NumberAnimation { duration: 240; easing.type: Easing.OutQuint }
+            }
+            Behavior on opacity {
+                NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+            }
 
             Item {
                 id: coverButton
                 implicitWidth: 46
                 implicitHeight: 46
+                opacity: root.hideCoverForHero ? 0.0 : 1.0
 
                 readonly property bool hovered: coverMa.containsMouse && root.controller.hasTrack
                 readonly property bool indicatingAction: hovered || coverMa.pressed
 
-                Rectangle {
+                Item {
                     id: coverCard
                     anchors.fill: parent
-                    radius: DesignTokens.radiusMd
-                    color: DesignTokens.surfaceCard
-                    clip: true
 
-                    scale: coverMa.pressed ? 0.97 : (coverButton.hovered ? 1.06 : 1.0)
+                    scale: coverMa.pressed ? 0.96 : (coverButton.hovered ? 1.07 : 1.0)
                     Behavior on scale {
                         NumberAnimation { duration: DesignTokens.animFast; easing.type: Easing.OutCubic }
                     }
 
-                    Rectangle {
-                        id: dockCoverMask
+                    VinylDiscItem {
+                        id: dockVinyl
                         anchors.fill: parent
-                        radius: coverCard.radius
-                        visible: false
-                        layer.enabled: true
-                        layer.smooth: true
-                    }
-
-                    Image {
-                        id: dockCoverImg
-                        anchors.fill: parent
-                        source: root.controller.trackCoverUrl
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        cache: false
-                        visible: false
-                    }
-
-                    MultiEffect {
-                        anchors.fill: dockCoverImg
-                        visible: dockCoverImg.status === Image.Ready
-                        source: dockCoverImg
-                        maskEnabled: true
-                        maskSource: dockCoverMask
-                        maskThresholdMin: 0.5
-                        maskSpreadAtMin: 1.0
-                    }
-
-                    IconGlyph {
-                        anchors.centerIn: parent
-                        name: "music"
-                        size: 22
-                        color: DesignTokens.textTertiary
-                        visible: dockCoverImg.status !== Image.Ready
+                        compact: true
+                        ownSpin: true
+                        playing: root.controller.isPlaying
+                        coverUrl: root.controller.trackCoverUrl
+                        hovered: coverButton.indicatingAction
                     }
 
                     Rectangle {
-                        anchors.centerIn: parent
-                        width: 25
-                        height: 25
-                        radius: height / 2
-                        color: DesignTokens.isDark
-                            ? Qt.rgba(0, 0, 0, coverMa.pressed ? 0.72 : 0.58)
-                            : Qt.rgba(1, 1, 1, coverMa.pressed ? 1.0 : 0.92)
+                        anchors.fill: parent
+                        radius: width * 0.5
+                        color: Qt.rgba(0, 0, 0, coverMa.pressed ? 0.52 : 0.36)
                         opacity: coverButton.indicatingAction ? 1.0 : 0.0
-                        scale: coverButton.indicatingAction ? 1.0 : 0.85
                         Behavior on opacity { NumberAnimation { duration: DesignTokens.animFast } }
-                        Behavior on scale {
-                            NumberAnimation { duration: DesignTokens.animFast; easing.type: Easing.OutCubic }
-                        }
 
                         IconGlyph {
                             anchors.centerIn: parent
-                            name: root.lyricsOpen ? "chevron_down" : "chevron_up"
-                            size: 17
-                            color: DesignTokens.isDark ? "#ffffff" : DesignTokens.accent
-                            strokeWidth: 2.2
+                            name: "expand"
+                            size: 15
+                            color: "#ffffff"
                         }
-                    }
-
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: coverCard.radius
-                        color: "transparent"
-                        border.width: 1
-                        border.color: {
-                            if (root.lyricsOpen) return DesignTokens.accent
-                            if (!coverButton.indicatingAction) return DesignTokens.borderHighlight
-                            return DesignTokens.isDark ? DesignTokens.accentLight : Qt.alpha(DesignTokens.accent, 0.72)
-                        }
-                        Behavior on border.color { ColorAnimation { duration: DesignTokens.animFast } }
                     }
                 }
 
@@ -201,7 +189,7 @@ GlassPanel {
                     enabled: root.controller.hasTrack
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: root.toggleLyrics()
+                    onClicked: root.coverClicked()
                 }
             }
 
@@ -269,31 +257,6 @@ GlassPanel {
                     color: DesignTokens.textSecondary
                     font.family: DesignTokens.fontFamily
                     font.pixelSize: 12
-                }
-
-                RowLayout {
-                    spacing: 6
-                    visible: root.controller.exclusiveActive
-
-                    FormatBadge {
-                        compact: true
-                        text: root.controller.trackFormatBadge
-                    }
-
-                    FormatBadge {
-                        compact: true
-                        visible: root.controller.exclusiveActive
-                        text: root.controller.bitPerfectActive ? qsTr("Bit-Perfect") : qsTr("Exclusive")
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: root.controller.trackTechSummary
-                        elide: Text.ElideRight
-                        color: DesignTokens.textTertiary
-                        font.family: DesignTokens.fontFamily
-                        font.pixelSize: 11
-                    }
                 }
             }
         }
@@ -509,7 +472,7 @@ GlassPanel {
         // Right: Lyrics, EQ, Info, Queue, Mute + SonoraSlider Volume
         RowLayout {
             Layout.fillWidth: false
-            Layout.preferredWidth: root.compact ? 226 : 266
+            Layout.preferredWidth: root.compact ? 214 : 252
             Layout.alignment: Qt.AlignRight
             spacing: root.compact ? 4 : 6
 

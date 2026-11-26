@@ -194,9 +194,7 @@ void PlaybackEngine::playIndex(int index) {
 
     {
         std::lock_guard<std::mutex> lock(cmdMutex_);
-        pendingCmd_.type = DecodeCommandType::OpenTrack;
-        pendingCmd_.queueIndex = index;
-        pendingCmd_.track = target;
+        pendingCmd_ = {DecodeCommandType::OpenTrack, index, target, 0};
         hasPendingCmd_ = true;
     }
     cmdCv_.notify_all();

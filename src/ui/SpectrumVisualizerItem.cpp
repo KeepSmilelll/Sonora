@@ -62,6 +62,13 @@ void SpectrumVisualizerItem::setMirrored(bool m) {
     update();
 }
 
+void SpectrumVisualizerItem::setStyleMode(const QString& mode) {
+    if (styleMode_ == mode) return;
+    styleMode_ = mode;
+    emit styleChanged();
+    update();
+}
+
 void SpectrumVisualizerItem::itemChange(ItemChange change, const ItemChangeData& value) {
     QQuickItem::itemChange(change, value);
     if (change == ItemVisibleHasChanged || change == ItemSceneChange) {
@@ -81,6 +88,11 @@ void SpectrumVisualizerItem::updateTimerState() {
         if (!frameTimer_.isActive()) frameTimer_.start();
     } else {
         if (frameTimer_.isActive()) frameTimer_.stop();
+        if (bassEnergy_ > 0.0f) {
+            bassEnergy_ = 0.0f;
+            lastEmittedBass_ = 0.0f;
+            emit bassEnergyChanged();
+        }
     }
 }
 
@@ -90,6 +102,22 @@ void SpectrumVisualizerItem::onFrameTick() {
         return;
     }
     sharedEngine_->fftAnalyzer().computeBands(bars_, peaks_, playing_);
+
+    float bassSum = 0.0f;
+    constexpr size_t kBassBands = 8;
+    for (size_t i = 0; i < kBassBands; ++i) {
+        bassSum += bars_[i];
+    }
+    const float targetBass = playing_ ? std::clamp(bassSum / static_cast<float>(kBassBands), 0.0f, 1.0f) : 0.0f;
+    bassEnergy_ = bassEnergy_ * 0.72f + targetBass * 0.28f;
+    if (bassEnergy_ < 0.004f) {
+        bassEnergy_ = 0.0f;
+    }
+    if (std::abs(bassEnergy_ - lastEmittedBass_) > 0.008f || (bassEnergy_ == 0.0f && lastEmittedBass_ != 0.0f)) {
+        lastEmittedBass_ = bassEnergy_;
+        emit bassEnergyChanged();
+    }
+
     if (!playing_) {
         if (idleDecayFrames_ > 0) --idleDecayFrames_;
         if (idleDecayFrames_ <= 0) {
@@ -158,6 +186,9 @@ QSGNode* SpectrumVisualizerItem::updatePaintNode(QSGNode* oldNode, UpdatePaintNo
         v[offset + 5].set(x0, y1, bc[0], bc[1], bc[2], bc[3]);
     };
 
+    const bool isAurora = (styleMode_ == QStringLiteral("aurora"));
+    const bool isMirrored = mirrored_ || (styleMode_ == QStringLiteral("mirrored"));
+
     for (int i = 0; i < kBands; ++i) {
         const float t = static_cast<float>(i) / static_cast<float>(kBands - 1);
         QColor topCol(
@@ -173,7 +204,17 @@ QSGNode* SpectrumVisualizerItem::updatePaintNode(QSGNode* oldNode, UpdatePaintNo
         const float x0 = i * step + gap * 0.5f;
         const float x1 = x0 + barW;
 
-        if (mirrored_) {
+        if (isAurora) {
+            const float mid = h * 0.5f;
+            const float bell = 0.35f + 0.65f * std::sin(t * 3.14159265f);
+            const float halfH = std::max(1.5f, val * mid * 0.94f * bell);
+            QColor coreCol = topCol;
+            coreCol.setAlpha(235);
+            QColor tipCol = topCol;
+            tipCol.setAlpha(18);
+            writeQuad(i * 12, x0, mid - halfH, x1, mid, tipCol, coreCol);
+            writeQuad(i * 12 + 6, x0, mid, x1, mid + halfH, coreCol, tipCol);
+        } else if (isMirrored) {
             const float mid = h * 0.5f;
             const float halfH = std::max(1.5f, val * mid * 0.92f);
             writeQuad(i * 12, x0, mid - halfH, x1, mid + halfH, topCol, topCol);

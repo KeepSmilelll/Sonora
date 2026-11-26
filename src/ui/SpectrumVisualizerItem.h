@@ -21,6 +21,8 @@ class SpectrumVisualizerItem : public QQuickItem {
     Q_PROPERTY(bool playing READ isPlaying WRITE setPlaying NOTIFY activeChanged)
     Q_PROPERTY(bool visualizerEnabled READ visualizerEnabled WRITE setVisualizerEnabled NOTIFY activeChanged)
     Q_PROPERTY(bool mirrored READ mirrored WRITE setMirrored NOTIFY styleChanged)
+    Q_PROPERTY(QString styleMode READ styleMode WRITE setStyleMode NOTIFY styleChanged)
+    Q_PROPERTY(qreal bassEnergy READ bassEnergy NOTIFY bassEnergyChanged)
 
 public:
     explicit SpectrumVisualizerItem(QQuickItem* parent = nullptr);
@@ -42,9 +44,15 @@ public:
     bool mirrored() const { return mirrored_; }
     void setMirrored(bool m);
 
+    QString styleMode() const { return styleMode_; }
+    void setStyleMode(const QString& mode);
+
+    qreal bassEnergy() const { return static_cast<qreal>(bassEnergy_); }
+
 signals:
     void styleChanged();
     void activeChanged();
+    void bassEnergyChanged();
 
 protected:
     QSGNode* updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData* data) override;
@@ -61,6 +69,9 @@ private:
     bool playing_ = false;
     bool visualizerEnabled_ = true;
     bool mirrored_ = false;
+    QString styleMode_{QStringLiteral("bars")};
+    float bassEnergy_ = 0.0f;
+    float lastEmittedBass_ = 0.0f;
     int idleDecayFrames_ = 0;
 
     QTimer frameTimer_;

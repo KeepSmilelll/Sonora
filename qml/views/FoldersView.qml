@@ -26,35 +26,38 @@ Item {
                 onClicked: root.lib.goUpFolder()
             }
 
-            Rectangle {
-                implicitWidth: 42
-                implicitHeight: 42
-                radius: 13
-                color: DesignTokens.accentSoft
-                border.width: 1
-                border.color: Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, 0.25)
-                IconGlyph { anchors.centerIn: parent; name: "folder"; size: 19; color: DesignTokens.accent }
+            Text {
+                text: qsTr("Folders")
+                color: DesignTokens.textPrimary
+                font.family: DesignTokens.fontFamily
+                font.pixelSize: 24
+                font.weight: Font.Bold
+                font.letterSpacing: -0.3
             }
 
-            ColumnLayout {
+            Rectangle {
                 Layout.fillWidth: true
-                spacing: 2
+                Layout.maximumWidth: 520
+                implicitHeight: 28
+                radius: 14
+                color: DesignTokens.surfaceInput
+                border.width: 1
+                border.color: DesignTokens.hairlineBorder
+
                 Text {
-                    text: qsTr("Folders")
-                    color: DesignTokens.textPrimary
-                    font.family: DesignTokens.fontFamily
-                    font.pixelSize: 23
-                    font.weight: Font.Bold
-                }
-                Text {
-                    Layout.fillWidth: true
+                    anchors.fill: parent
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 12
+                    verticalAlignment: Text.AlignVCenter
                     text: root.lib.currentFolderPath.length > 0 ? root.lib.currentFolderPath : qsTr("Watched Music Directories")
                     elide: Text.ElideMiddle
-                    color: DesignTokens.textTertiary
+                    color: DesignTokens.textSecondary
                     font.family: DesignTokens.fontFamily
                     font.pixelSize: 12
                 }
             }
+
+            Item { Layout.fillWidth: true }
 
             SonoraButton {
                 accentTinted: true
@@ -78,9 +81,11 @@ Item {
                     height: 38
                     width: Math.min(280, fRow.implicitWidth + 26)
                     radius: 12
-                    color: fMa.containsMouse ? DesignTokens.surfaceCardHover : DesignTokens.surfaceCard
+                    color: fMa.containsMouse ? DesignTokens.surfaceCardHover : DesignTokens.stageSurfaceBg
                     border.width: 1
-                    border.color: fMa.containsMouse ? DesignTokens.borderHighlight : DesignTokens.borderOuter
+                    border.color: fMa.containsMouse
+                        ? Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, 0.45)
+                        : DesignTokens.hairlineBorder
                     scale: fMa.pressed ? 0.96 : (fMa.containsMouse ? 1.02 : 1.0)
 
                     Behavior on color { ColorAnimation { duration: 130 } }
@@ -147,6 +152,17 @@ Item {
                 border.width: isCurrent ? 1 : 0
                 border.color: Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, 0.25)
                 Behavior on color { ColorAnimation { duration: 110 } }
+
+                Rectangle {
+                    visible: ftRow.isCurrent
+                    width: 3
+                    height: 18
+                    radius: 1.5
+                    anchors.left: parent.left
+                    anchors.leftMargin: 3
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: DesignTokens.accent
+                }
 
                 RowLayout {
                     anchors.fill: parent
@@ -221,6 +237,9 @@ Item {
                 width: Math.min(parent.width - 64, 420)
                 height: emptyFolderCol.implicitHeight + 44
                 radius: DesignTokens.radiusXl
+                panelColor: DesignTokens.stageSurfaceBg
+                borderColor: DesignTokens.hairlineBorder
+                shadowEnabled: false
 
                 ColumnLayout {
                     id: emptyFolderCol

@@ -9,6 +9,7 @@ Item {
 
     required property var controller
     required property var lib
+    property var heroLayer: null
 
     property bool inDetail: false
     property string selectedAlbum: ""
@@ -16,70 +17,69 @@ Item {
     property string selectedCoverHash: ""
     property int selectedYear: 0
 
-    onInDetailChanged: {
-        subviewAnim.fromX = inDetail ? 22 : -22
-        subviewAnim.restart()
+    property int lastOpenedIndex: -1
+    property var lastSourceRectInHero: null
+
+    ParallelAnimation {
+        id: gridRevealAnim
+        NumberAnimation { target: gridPane; property: "opacity"; from: 0.0; to: 1.0; duration: 200; easing.type: Easing.OutCubic }
+        NumberAnimation { target: gridShift; property: "x"; from: -16; to: 0; duration: 240; easing.type: Easing.OutQuint }
     }
 
     ParallelAnimation {
-        id: subviewAnim
-        property real fromX: 22
-        NumberAnimation {
-            target: root.inDetail ? detailPane : gridPane
-            property: "opacity"
-            from: 0.0; to: 1.0
-            duration: 210
-            easing.type: Easing.OutCubic
-        }
-        NumberAnimation {
-            target: root.inDetail ? detailShift : gridShift
-            property: "x"
-            from: subviewAnim.fromX; to: 0
-            duration: 240
-            easing.type: Easing.OutQuint
-        }
+        id: detailRevealAnim
+        NumberAnimation { target: detailMetaCol; property: "opacity"; from: 0.0; to: 1.0; duration: 220; easing.type: Easing.OutCubic }
+        NumberAnimation { target: detailMetaShift; property: "y"; from: 14; to: 0; duration: 260; easing.type: Easing.OutQuint }
+        NumberAnimation { target: detailTrackList; property: "opacity"; from: 0.0; to: 1.0; duration: 240; easing.type: Easing.OutCubic }
+        NumberAnimation { target: detailListShift; property: "y"; from: 18; to: 0; duration: 280; easing.type: Easing.OutQuint }
     }
 
     // Album Grid View
-    ColumnLayout {
+    Item {
         id: gridPane
         visible: !root.inDetail
         anchors.fill: parent
         anchors.margins: 22
-        spacing: 14
         transform: Translate { id: gridShift; x: 0 }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 14
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: 13
+            spacing: 12
 
-            Rectangle {
-                implicitWidth: 42
-                implicitHeight: 42
-                radius: 13
-                color: DesignTokens.accentSoft
-                border.width: 1
-                border.color: Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, 0.25)
-                IconGlyph { anchors.centerIn: parent; name: "album"; size: 19; color: DesignTokens.accent }
+            Text {
+                text: qsTr("Albums")
+                color: DesignTokens.textPrimary
+                font.family: DesignTokens.fontFamily
+                font.pixelSize: 24
+                font.weight: Font.Bold
+                font.letterSpacing: -0.3
             }
 
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 2
+            Rectangle {
+                implicitWidth: albumCountLbl.implicitWidth + 18
+                implicitHeight: 24
+                radius: 12
+                color: DesignTokens.surfaceInput
+                border.width: 1
+                border.color: DesignTokens.hairlineBorder
+
                 Text {
-                    text: qsTr("Albums")
-                    color: DesignTokens.textPrimary
-                    font.family: DesignTokens.fontFamily
-                    font.pixelSize: 23
-                    font.weight: Font.Bold
-                }
-                Text {
+                    id: albumCountLbl
+                    anchors.centerIn: parent
                     text: qsTr("%1 album(s)").arg(root.lib.albumsModel.count)
                     color: DesignTokens.textTertiary
                     font.family: DesignTokens.fontFamily
-                    font.pixelSize: 12
+                    font.pixelSize: 11
+                    font.weight: Font.Medium
+                    font.features: ({ "tnum": 1 })
                 }
             }
+
+            Item { Layout.fillWidth: true }
         }
 
         GridView {
@@ -97,6 +97,7 @@ Item {
 
             delegate: Item {
                 id: card
+                required property int index
                 required property string album
                 required property string albumArtist
                 required property int year
@@ -111,13 +112,13 @@ Item {
                 Rectangle {
                     id: cardSurface
                     x: 7
-                    y: card.hovered ? 3 : 7
+                    y: card.hovered ? 2 : 7
                     width: parent.width - 14
                     height: parent.height - 14
                     radius: DesignTokens.radiusLg
-                    color: card.hovered ? DesignTokens.surfaceCardHover : DesignTokens.surfaceCard
+                    color: card.hovered ? DesignTokens.surfaceCardHover : DesignTokens.stageSurfaceBg
                     border.width: 1
-                    border.color: card.hovered ? DesignTokens.borderHighlight : DesignTokens.borderSubtle
+                    border.color: card.hovered ? DesignTokens.borderHighlight : DesignTokens.hairlineBorder
 
                     Behavior on y { NumberAnimation { duration: 190; easing.type: Easing.OutCubic } }
                     Behavior on color { ColorAnimation { duration: 150 } }
@@ -135,8 +136,10 @@ Item {
                             radius: DesignTokens.radiusMd
                             color: DesignTokens.surfaceInput
                             border.width: 1
-                            border.color: DesignTokens.borderSubtle
+                            border.color: DesignTokens.hairlineBorder
                             clip: true
+                            opacity: (root.heroLayer && root.heroLayer.isConcealing("album-cover")
+                                      && root.lastOpenedIndex === card.index) ? 0.0 : 1.0
 
                             Rectangle {
                                 id: gridCoverMask
@@ -165,7 +168,7 @@ Item {
                                 maskSource: gridCoverMask
                                 maskThresholdMin: 0.5
                                 maskSpreadAtMin: 1.0
-                                scale: card.hovered ? 1.04 : 1.0
+                                scale: card.hovered ? 1.045 : 1.0
                                 Behavior on scale { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
                             }
 
@@ -266,12 +269,40 @@ Item {
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
+                            root.lastOpenedIndex = card.index
+                            const coverUrl = card.coverHash.length > 0 ? ("image://cover/" + card.coverHash + "?size=360") : ""
+                            if (root.heroLayer) {
+                                const srcPt = coverBox.mapToItem(root.heroLayer, 0, 0)
+                                root.lastSourceRectInHero = {
+                                    x: srcPt.x,
+                                    y: srcPt.y,
+                                    width: coverBox.width,
+                                    height: coverBox.height
+                                }
+                                // Deterministic detailCoverBox destination: (36, 80, 148, 148) inside root
+                                const destPt = root.mapToItem(root.heroLayer, 36, 80)
+                                root.heroLayer.startHero({
+                                    tag: "album-cover",
+                                    sourceItem: coverBox,
+                                    fromRadius: DesignTokens.radiusMd,
+                                    toRect: {
+                                        x: destPt.x,
+                                        y: destPt.y,
+                                        width: 148,
+                                        height: 148
+                                    },
+                                    toRadius: DesignTokens.radiusLg,
+                                    imageUrl: coverUrl,
+                                    duration: 380
+                                })
+                            }
                             root.selectedAlbum = card.album
                             root.selectedArtist = card.albumArtist
                             root.selectedCoverHash = card.coverHash
                             root.selectedYear = card.year
                             root.lib.openAlbum(card.album, card.albumArtist)
                             root.inDetail = true
+                            detailRevealAnim.restart()
                         }
                     }
                 }
@@ -294,127 +325,212 @@ Item {
                 }
             }
         }
+        }
     }
 
-    // Album Detail View
+    // Album Detail View (Deterministic header geometry for Hero alignment)
     ColumnLayout {
         id: detailPane
         visible: root.inDetail
         anchors.fill: parent
         anchors.margins: 22
         spacing: 14
-        transform: Translate { id: detailShift; x: 0 }
 
         RowLayout {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 30
             spacing: 8
+
             SonoraButton {
                 compact: true
                 iconName: "chevron_left"
                 text: qsTr("Albums")
-                onClicked: root.inDetail = false
+                onClicked: {
+                    if (root.heroLayer && root.lastSourceRectInHero) {
+                        const coverUrl = root.selectedCoverHash.length > 0
+                            ? ("image://cover/" + root.selectedCoverHash + "?size=360") : ""
+                        root.heroLayer.startHero({
+                            tag: "album-cover",
+                            sourceItem: detailCoverBox,
+                            fromRadius: DesignTokens.radiusLg,
+                            toRect: root.lastSourceRectInHero,
+                            toRadius: DesignTokens.radiusMd,
+                            imageUrl: coverUrl,
+                            duration: 340
+                        })
+                    }
+                    root.inDetail = false
+                    gridRevealAnim.restart()
+                }
             }
+
+            Item { Layout.fillWidth: true }
         }
 
-        GlassPanel {
+        // Borderless atmospheric detail hero header (top at y = 22 + 30 + 14 = 66 in root)
+        Item {
+            id: detailHeroHeader
             Layout.fillWidth: true
-            implicitHeight: 172
-            radius: DesignTokens.radiusLg
+            Layout.preferredHeight: 176
 
-            RowLayout {
+            // Soft atmospheric gradient wash
+            Rectangle {
                 anchors.fill: parent
-                anchors.margins: 14
-                spacing: 20
-
-                Rectangle {
-                    implicitWidth: 144
-                    implicitHeight: 144
-                    radius: DesignTokens.radiusMd
-                    color: DesignTokens.surfaceInput
-                    border.width: 1
-                    border.color: DesignTokens.borderHighlight
-                    clip: true
-
-                    Rectangle {
-                        id: detailCoverMask
-                        anchors.fill: parent
-                        radius: DesignTokens.radiusMd
-                        visible: false
-                        layer.enabled: true
-                        layer.smooth: true
-                    }
-
-                    Image {
-                        id: detailCoverImg
-                        anchors.fill: parent
-                        source: root.selectedCoverHash.length > 0 ? ("image://cover/" + root.selectedCoverHash + "?size=360") : ""
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        cache: false
-                        visible: false
-                    }
-
-                    MultiEffect {
-                        anchors.fill: detailCoverImg
-                        visible: detailCoverImg.status === Image.Ready
-                        source: detailCoverImg
-                        maskEnabled: true
-                        maskSource: detailCoverMask
-                        maskThresholdMin: 0.5
-                        maskSpreadAtMin: 1.0
-                    }
-                    IconGlyph {
-                        anchors.centerIn: parent
-                        name: "album"
-                        size: 46
-                        color: DesignTokens.textTertiary
-                        visible: detailCoverImg.status !== Image.Ready
-                    }
+                radius: DesignTokens.radiusLg
+                gradient: Gradient {
+                    orientation: Gradient.Horizontal
+                    GradientStop { position: 0.0; color: DesignTokens.accentSoft }
+                    GradientStop { position: 0.65; color: Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, 0.03) }
+                    GradientStop { position: 1.0; color: "transparent" }
                 }
 
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: 1
+                    color: DesignTokens.hairlineBorder
+                }
+            }
+
+            // Soft ambient halo behind cover
+            Rectangle {
+                anchors.centerIn: detailCoverBox
+                width: detailCoverBox.width + 26
+                height: detailCoverBox.height + 26
+                radius: DesignTokens.radiusXl
+                color: Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, DesignTokens.isDark ? 0.14 : 0.09)
+                opacity: (root.heroLayer && root.heroLayer.isConcealing("album-cover")) ? 0.0 : 1.0
+                Behavior on opacity { NumberAnimation { duration: 180 } }
+            }
+
+            // Exact deterministic Hero landing box at (14, 14) in detailHeroHeader -> (36, 80) in root
+            Rectangle {
+                id: detailCoverBox
+                x: 14
+                y: 14
+                width: 148
+                height: 148
+                radius: DesignTokens.radiusLg
+                color: DesignTokens.surfaceInput
+                border.width: 1
+                border.color: DesignTokens.borderHighlight
+                clip: true
+                opacity: (root.heroLayer && root.heroLayer.isConcealing("album-cover")) ? 0.0 : 1.0
+
+                Rectangle {
+                    id: detailCoverMask
+                    anchors.fill: parent
+                    radius: DesignTokens.radiusLg
+                    visible: false
+                    layer.enabled: true
+                    layer.smooth: true
+                }
+
+                Image {
+                    id: detailCoverImg
+                    anchors.fill: parent
+                    source: root.selectedCoverHash.length > 0 ? ("image://cover/" + root.selectedCoverHash + "?size=360") : ""
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                    cache: false
+                    visible: false
+                }
+
+                MultiEffect {
+                    anchors.fill: detailCoverImg
+                    visible: detailCoverImg.status === Image.Ready
+                    source: detailCoverImg
+                    maskEnabled: true
+                    maskSource: detailCoverMask
+                    maskThresholdMin: 0.5
+                    maskSpreadAtMin: 1.0
+                }
+
+                IconGlyph {
+                    anchors.centerIn: parent
+                    name: "album"
+                    size: 46
+                    color: DesignTokens.textTertiary
+                    visible: detailCoverImg.status !== Image.Ready
+                }
+            }
+
+            Item {
+                id: detailMetaCol
+                anchors.left: detailCoverBox.right
+                anchors.leftMargin: 22
+                anchors.right: parent.right
+                anchors.rightMargin: 16
+                anchors.verticalCenter: detailCoverBox.verticalCenter
+                height: detailMetaInner.implicitHeight
+                transform: Translate { id: detailMetaShift; y: 0 }
+
                 ColumnLayout {
+                    id: detailMetaInner
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 6
+
+                Text {
                     Layout.fillWidth: true
-                    spacing: 5
+                    text: root.selectedAlbum
+                    elide: Text.ElideRight
+                    color: DesignTokens.textPrimary
+                    font.family: DesignTokens.fontFamily
+                    font.pixelSize: 24
+                    font.weight: Font.Bold
+                    font.letterSpacing: -0.3
+                }
 
-                    Text {
-                        Layout.fillWidth: true
-                        text: root.selectedAlbum
-                        elide: Text.ElideRight
-                        color: DesignTokens.textPrimary
-                        font.family: DesignTokens.fontFamily
-                        font.pixelSize: 23
-                        font.weight: Font.Bold
-                    }
-                    Text {
-                        Layout.fillWidth: true
-                        elide: Text.ElideRight
-                        text: root.selectedYear > 0 ? (root.selectedArtist + " · " + root.selectedYear) : root.selectedArtist
-                        color: DesignTokens.accent
-                        font.family: DesignTokens.fontFamily
-                        font.pixelSize: 14
-                        font.weight: Font.DemiBold
-                    }
-                    Text {
-                        text: qsTr("%1 track(s)").arg(root.lib.detailTracksModel.count)
-                        color: DesignTokens.textTertiary
-                        font.family: DesignTokens.fontFamily
-                        font.pixelSize: 12
+                Text {
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                    text: root.selectedYear > 0 ? (root.selectedArtist + " · " + root.selectedYear) : root.selectedArtist
+                    color: DesignTokens.accentLight
+                    font.family: DesignTokens.fontFamily
+                    font.pixelSize: 14
+                    font.weight: Font.DemiBold
+                }
+
+                RowLayout {
+                    Layout.topMargin: 6
+                    spacing: 10
+
+                    SonoraButton {
+                        primary: true
+                        iconName: "play"
+                        text: qsTr("Play Album")
+                        onClicked: root.lib.playFromDetailModel(0)
                     }
 
-                    RowLayout {
-                        Layout.topMargin: 6
-                        spacing: 10
-                        SonoraButton {
-                            primary: true
-                            iconName: "play"
-                            text: qsTr("Play Album")
-                            onClicked: root.lib.playFromDetailModel(0)
+                    Rectangle {
+                        implicitWidth: dtCountLbl.implicitWidth + 18
+                        implicitHeight: 28
+                        radius: 14
+                        color: DesignTokens.surfaceInput
+                        border.width: 1
+                        border.color: DesignTokens.hairlineBorder
+
+                        Text {
+                            id: dtCountLbl
+                            anchors.centerIn: parent
+                            text: qsTr("%1 track(s)").arg(root.lib.detailTracksModel.count)
+                            color: DesignTokens.textTertiary
+                            font.family: DesignTokens.fontFamily
+                            font.pixelSize: 11
+                            font.weight: Font.Medium
+                            font.features: ({ "tnum": 1 })
                         }
                     }
+                }
                 }
             }
         }
 
         ListView {
+            id: detailTrackList
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
@@ -423,6 +539,7 @@ Item {
             boundsBehavior: Flickable.StopAtBounds
             model: root.lib.detailTracksModel
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            transform: Translate { id: detailListShift; y: 0 }
 
             delegate: Rectangle {
                 id: dtRow
@@ -444,6 +561,17 @@ Item {
                 border.width: isCurrent ? 1 : 0
                 border.color: Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, 0.25)
                 Behavior on color { ColorAnimation { duration: 110 } }
+
+                Rectangle {
+                    visible: dtRow.isCurrent
+                    width: 3
+                    height: 18
+                    radius: 1.5
+                    anchors.left: parent.left
+                    anchors.leftMargin: 3
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: DesignTokens.accent
+                }
 
                 RowLayout {
                     anchors.fill: parent
@@ -477,7 +605,7 @@ Item {
                         Layout.fillWidth: true
                         text: dtRow.title
                         elide: Text.ElideRight
-                        color: dtRow.isCurrent ? DesignTokens.accent : DesignTokens.textPrimary
+                        color: dtRow.isCurrent ? DesignTokens.accentLight : DesignTokens.textPrimary
                         font.family: DesignTokens.fontFamily
                         font.pixelSize: 13
                         font.weight: dtRow.isCurrent ? Font.DemiBold : Font.Medium

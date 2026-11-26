@@ -7,8 +7,8 @@ import Sonora.UI
 Window {
     id: win
 
-    width: 1220
-    height: 790
+    width: 1240
+    height: 800
     minimumWidth: 920
     minimumHeight: 610
     visible: false
@@ -19,10 +19,25 @@ Window {
     property string activeSection: "tracks"
     property int activePlaylistId: -1
     property string activePlaylistName: ""
-    property bool queueOpen: false
+
+    // Continuous Spatial Stage state ("collapsed" | "rail" | "immersive")
+    property string stageMode: "rail"
+    property string previousNonImmersiveMode: "rail"
+    property string stageTab: "lyrics" // "lyrics" | "queue"
+    property bool railExpanded: false
+    property real stageRailWidth: DesignTokens.stageDefaultWidth
+
+    readonly property bool narrowWindow: width < 980
     readonly property bool compactWindow: width < 1040
-    readonly property bool queueInWorkspace: queueOpen || queueKeepAlive
-    property bool lyricsOpen: false
+    readonly property string effectiveStageMode: (stageMode === "rail" && narrowWindow) ? "collapsed" : stageMode
+    readonly property bool lyricsOpen: effectiveStageMode !== "collapsed" && stageTab === "lyrics"
+    readonly property bool queueOpen: effectiveStageMode !== "collapsed" && stageTab === "queue"
+
+    property real animImmersive: stageMode === "immersive" ? 1.0 : 0.0
+    Behavior on animImmersive {
+        NumberAnimation { duration: DesignTokens.animStage; easing.type: Easing.OutQuint }
+    }
+
     property bool eqOpen: false
     property bool miniModeOpen: false
     property bool forceQuit: false
@@ -32,8 +47,6 @@ Window {
     property int exportPlaylistTargetId: -1
 
     // Keep-alive flags so exit animations play smoothly before Loaders free RAM
-    property bool lyricsKeepAlive: false
-    property bool queueKeepAlive: false
     property bool eqKeepAlive: false
     property bool trackInfoKeepAlive: false
     property var cachedTrackMap: ({})
@@ -42,6 +55,148 @@ Window {
     function syncTitleBarDragState() {
         const allowDrag = !win.createPlaylistOpen && win.inspectedTrackMap === null
         platformBridge.setTitleBarDragEnabled(allowDrag)
+    }
+
+    function enterImmersive(sourceItemHint) {
+        if (win.stageMode === "immersive") return
+        win.previousNonImmersiveMode = win.effectiveStageMode === "collapsed" ? "collapsed" : "rail"
+        const fromDock = (sourceItemHint === playbackDock.coverAnchorItem()) || (win.effectiveStageMode === "collapsed" && !sourceItemHint)
+        const src = sourceItemHint
+            || (win.effectiveStageMode === "rail" ? focusStage.currentCoverItem() : playbackDock.coverAnchorItem())
+        const fromR = src ? src.width * 0.5 : 23
+        const predWs = focusStage.predictedCoverRectInWorkspace(
+            workspaceHost.width, workspaceHost.height, "immersive", win.stageRailWidth)
+        const wsOrigin = workspaceHost.mapToItem(heroLayer, 0, 0)
+        heroLayer.startHero({
+            tag: "nowplaying-cover",
+            vinylMode: true,
+            startRotation: fromDock ? playbackDock.currentVinylAngle() : focusStage.sharedVinylAngle,
+            spinSpeed: player.isPlaying ? 24.0 : 0.0,
+            sourceItem: src,
+            fromRadius: fromR,
+            toRect: {
+                x: wsOrigin.x + predWs.x,
+                y: wsOrigin.y + predWs.y,
+                width: predWs.width,
+                height: predWs.height
+            },
+            toRadius: predWs.radius,
+            imageUrl: player.trackCoverUrl
+        })
+        win.stageMode = "immersive"
+    }
+
+    function exitImmersive() {
+        if (win.stageMode !== "immersive") return
+        const targetMode = (win.previousNonImmersiveMode === "collapsed" || win.narrowWindow) ? "collapsed" : "rail"
+        const src = focusStage.currentCoverItem()
+        let toRect = null
+        let toR = 23
+
+        if (targetMode === "rail") {
+            const predWs = focusStage.predictedCoverRectInWorkspace(
+                workspaceHost.width, workspaceHost.height, "rail", win.stageRailWidth)
+            const wsOrigin = workspaceHost.mapToItem(heroLayer, 0, 0)
+            toRect = {
+                x: wsOrigin.x + predWs.x,
+                y: wsOrigin.y + predWs.y,
+                width: predWs.width,
+                height: predWs.height
+            }
+            toR = predWs.radius
+        } else {
+            const targetDockW = Math.min(win.width - 32, DesignTokens.dockMaxWidth)
+            toRect = playbackDock.predictedCoverRectInWindow(
+                win.width, win.height, targetDockW, win.compactWindow)
+            toR = toRect.radius
+        }
+
+        heroLayer.startHero({
+            tag: "nowplaying-cover",
+            vinylMode: true,
+            startRotation: focusStage.sharedVinylAngle,
+            spinSpeed: player.isPlaying ? 24.0 : 0.0,
+            sourceItem: src,
+            fromRadius: focusStage.currentCoverRadius(),
+            toRect: toRect,
+            toRadius: toR,
+            imageUrl: player.trackCoverUrl
+        })
+        win.stageMode = targetMode
+    }
+
+    function toggleImmersive(sourceItemHint) {
+        if (win.stageMode === "immersive") {
+            exitImmersive()
+        } else {
+            enterImmersive(sourceItemHint)
+        }
+    }
+
+    function toggleStageLyrics(sourceItemHint) {
+        win.eqOpen = false
+        if (win.stageMode === "immersive") {
+            if (win.stageTab !== "lyrics") {
+                win.stageTab = "lyrics"
+            } else {
+                exitImmersive()
+            }
+            return
+        }
+        if (win.effectiveStageMode === "collapsed") {
+            win.stageTab = "lyrics"
+            if (win.narrowWindow) {
+                enterImmersive(sourceItemHint || playbackDock.coverAnchorItem())
+            } else {
+                win.stageMode = "rail"
+            }
+            return
+        }
+        if (win.stageTab !== "lyrics") {
+            win.stageTab = "lyrics"
+        } else {
+            enterImmersive(sourceItemHint)
+        }
+    }
+
+    function toggleStageQueue() {
+        win.eqOpen = false
+        if (win.stageMode === "immersive") {
+            if (win.stageTab !== "queue") {
+                win.stageTab = "queue"
+            } else {
+                exitImmersive()
+            }
+            return
+        }
+        if (win.effectiveStageMode === "collapsed") {
+            win.stageTab = "queue"
+            if (win.narrowWindow) {
+                enterImmersive(playbackDock.coverAnchorItem())
+            } else {
+                win.stageMode = "rail"
+            }
+            return
+        }
+        if (win.stageTab !== "queue") {
+            win.stageTab = "queue"
+        } else {
+            win.stageMode = "collapsed"
+        }
+    }
+
+    function toggleStagePanel() {
+        if (win.stageMode === "immersive") {
+            exitImmersive()
+        } else if (win.effectiveStageMode === "collapsed") {
+            if (win.narrowWindow) {
+                enterImmersive(playbackDock.coverAnchorItem())
+            } else {
+                win.stageMode = "rail"
+            }
+        } else {
+            win.stageMode = "collapsed"
+        }
     }
 
     onCreatePlaylistOpenChanged: {
@@ -69,30 +224,6 @@ Window {
         }
     }
 
-    onLyricsOpenChanged: {
-        if (lyricsOpen) {
-            win.queueOpen = false
-            lyricsCloseAnim.stop()
-            lyricsKeepAlive = true
-            lyricsOpenAnim.restart()
-        } else if (lyricsLoader.active) {
-            lyricsOpenAnim.stop()
-            lyricsCloseAnim.restart()
-        }
-    }
-
-    onQueueOpenChanged: {
-        if (queueOpen) {
-            win.lyricsOpen = false
-            queueCloseAnim.stop()
-            queueKeepAlive = true
-            queueOpenAnim.restart()
-        } else if (queueLoader.active) {
-            queueOpenAnim.stop()
-            queueCloseAnim.restart()
-        }
-    }
-
     onEqOpenChanged: {
         if (eqOpen) {
             eqCloseAnim.stop()
@@ -111,7 +242,11 @@ Window {
     onMiniModeOpenChanged: {
         if (miniModeOpen) {
             if (!miniWindowObj) {
-                miniWindowObj = miniPlayerComponent.createObject(null, { controller: player })
+                miniWindowObj = miniPlayerComponent.createObject(null, {
+                    controller: player,
+                    lyricsCtrl: lyricsController,
+                    settingsObj: appSettings
+                })
                 if (miniWindowObj) {
                     miniWindowObj.restoreMainRequested.connect(win.restoreMainWindow)
                     miniWindowObj.show()
@@ -134,15 +269,6 @@ Window {
         }
     }
 
-    function syncThemeTokens() {
-        DesignTokens.isDark = themeManager.isDark
-        DesignTokens.nativeBackdropActive = themeManager.nativeBackdropActive
-        DesignTokens.backdropMode = themeManager.backdropMode
-        DesignTokens.ambientPrimary = themeManager.ambientPrimary
-        DesignTokens.ambientSecondary = themeManager.ambientSecondary
-        DesignTokens.accent = themeManager.accentColor
-    }
-
     function restoreMainWindow() {
         if (win.visibility === Window.Minimized) {
             win.showNormal()
@@ -163,10 +289,7 @@ Window {
         }
     }
 
-    Component.onCompleted: {
-        syncThemeTokens()
-        syncTitleBarDragState()
-    }
+    Component.onCompleted: syncTitleBarDragState()
 
     onClosing: (close) => {
         if (forceQuit || platformBridge.quitting) {
@@ -183,22 +306,28 @@ Window {
     }
 
     Connections {
-        target: themeManager
-        function onThemeChanged() { win.syncThemeTokens() }
-        function onBackdropChanged() { win.syncThemeTokens() }
-        function onAmbientColorsChanged() { win.syncThemeTokens() }
-    }
-
-    Connections {
         target: platformBridge
         function onToggleMiniModeRequested() { win.toggleMiniMode() }
         function onShowMainWindowRequested() { win.restoreMainWindow() }
     }
 
+    Shortcut {
+        sequence: "Escape"
+        enabled: win.createPlaylistOpen || win.inspectedTrackMap !== null || win.eqOpen || win.stageMode === "immersive"
+        onActivated: {
+            if (win.createPlaylistOpen) win.createPlaylistOpen = false
+            else if (win.inspectedTrackMap !== null) win.inspectedTrackMap = null
+            else if (win.eqOpen) win.eqOpen = false
+            else if (win.stageMode === "immersive") win.exitImmersive()
+        }
+    }
+
     AmbientBackdrop {
         anchors.fill: parent
-        opacity: DesignTokens.nativeBackdropActive ? 0.35 : 0.12
+        immersive: win.stageMode === "immersive"
+        immersiveFactor: win.animImmersive
         playing: player.isPlaying
+        audioEnergy: focusStage.liveBassEnergy
     }
 
     // Native OS Dialogs (zero Qt6Widgets)
@@ -251,6 +380,11 @@ Window {
         compact: win.compactWindow
         searchText: library.searchQuery
         isMaximized: win.visibility === Window.Maximized
+        railExpanded: win.railExpanded
+        stageMode: win.effectiveStageMode
+        immersiveFactor: win.animImmersive
+        onToggleRailExpanded: win.railExpanded = !win.railExpanded
+        onToggleStagePanel: win.toggleStagePanel()
         onSearchEdited: (text) => library.searchQuery = text
         onOpenFilesRequested: openAudioDialog.open()
         onToggleTheme: themeManager.toggleDarkLight()
@@ -260,205 +394,235 @@ Window {
         onCloseClicked: win.close()
     }
 
-    // Spatial Workspace Islands (Sidebar Rail + Rounded Content Stage)
-    RowLayout {
-        id: workspaceRow
-        anchors.top: titleBar.bottom
-        anchors.topMargin: 12
-        anchors.left: parent.left
-        anchors.leftMargin: 16
-        anchors.right: parent.right
-        anchors.rightMargin: win.queueInWorkspace ? 16 + queueHost.width + 12 : 16
-        anchors.bottom: playbackDock.top
-        anchors.bottomMargin: 18
-        spacing: win.compactWindow ? 12 : 18
-        z: 5
-
-        Sidebar {
-            compact: win.compactWindow && win.queueInWorkspace
-            Layout.fillHeight: true
-            activeSection: win.activeSection
-            customPlaylists: library.playlists
-            activePlaylistId: win.activePlaylistId
-            onSectionSelected: (section) => {
-                const changed = (win.activeSection !== section || win.activePlaylistId !== -1)
-                win.activeSection = section
-                win.activePlaylistId = -1
-                if (win.lyricsOpen) win.lyricsOpen = false
-                if (section === "tracks" || section === "favorites" || section === "recent" || section === "folders") {
-                    library.loadSection(section)
-                }
-                if (changed) win.triggerViewTransition()
-            }
-            onPlaylistSelected: (plId, plName) => {
-                const changed = (win.activeSection !== "playlist" || win.activePlaylistId !== plId)
-                win.activeSection = "playlist"
-                win.activePlaylistId = plId
-                win.activePlaylistName = plName
-                if (win.lyricsOpen) win.lyricsOpen = false
-                library.openPlaylist(plId)
-                if (changed) win.triggerViewTransition()
-            }
-            onCreatePlaylistRequested: win.createPlaylistOpen = true
-            onImportM3uRequested: importM3uDialog.open()
-        }
-
-        // Rounded Glass Content Stage — lazy view activation keeps unused views at 0 RAM
-        GlassPanel {
-            id: contentStage
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            radius: DesignTokens.radiusXl
-            readonly property bool tracksVisible: win.activeSection === "tracks"
-                || win.activeSection === "favorites" || win.activeSection === "recent"
-                || win.activeSection === "playlist"
-            panelColor: tracksVisible ? "transparent" : DesignTokens.canvasBg
-            borderColor: tracksVisible ? "transparent" : DesignTokens.borderOuter
-            specularEnabled: !tracksVisible
-            shadowEnabled: false
-
-            Item {
-                id: stageViewport
-                anchors.fill: parent
-                transform: Translate { id: stageShift; y: 0 }
-
-                ParallelAnimation {
-                    id: viewSwitchAnim
-                    NumberAnimation { target: stageViewport; property: "opacity"; from: 0.0; to: 1.0; duration: 200; easing.type: Easing.OutCubic }
-                    NumberAnimation { target: stageShift; property: "y"; from: 10; to: 0; duration: 240; easing.type: Easing.OutQuint }
-                }
-
-                Loader {
-                    anchors.fill: parent
-                    active: win.activeSection === "tracks"
-                         || win.activeSection === "favorites"
-                         || win.activeSection === "recent"
-                         || win.activeSection === "playlist"
-                    visible: active
-                    sourceComponent: TracksView {
-                        controller: player
-                        lib: library
-                        sectionKey: win.activeSection
-                        activePlaylistId: win.activePlaylistId
-                        sectionTitle: {
-                            if (win.activeSection === "favorites") return qsTr("Favorites")
-                            if (win.activeSection === "recent") return qsTr("Recently Played")
-                            if (win.activeSection === "playlist") return win.activePlaylistName
-                            return qsTr("All Tracks")
-                        }
-                        onAddFolderRequested: addFolderDialog.open()
-                        onOpenFilesRequested: openAudioDialog.open()
-                        onExportPlaylistRequested: (plId) => {
-                            win.exportPlaylistTargetId = plId
-                            exportM3uDialog.open()
-                        }
-                        onDeletePlaylistRequested: (plId) => {
-                            library.deletePlaylist(plId)
-                            win.activeSection = "tracks"
-                            win.activePlaylistId = -1
-                            win.triggerViewTransition()
-                        }
-                        onInspectTrack: (map) => win.inspectedTrackMap = map
-                        onShowLyricsRequested: win.lyricsOpen = true
-                    }
-                }
-
-                Loader {
-                    anchors.fill: parent
-                    active: win.activeSection === "albums"
-                    visible: active
-                    sourceComponent: AlbumsView {
-                        controller: player
-                        lib: library
-                    }
-                }
-
-                Loader {
-                    anchors.fill: parent
-                    active: win.activeSection === "artists"
-                    visible: active
-                    sourceComponent: ArtistsView {
-                        controller: player
-                        lib: library
-                    }
-                }
-
-                Loader {
-                    anchors.fill: parent
-                    active: win.activeSection === "folders"
-                    visible: active
-                    sourceComponent: FoldersView {
-                        controller: player
-                        lib: library
-                        onAddFolderRequested: addFolderDialog.open()
-                    }
-                }
-
-                Loader {
-                    anchors.fill: parent
-                    active: win.activeSection === "settings"
-                    visible: active
-                    sourceComponent: SettingsView {
-                        controller: player
-                        lib: library
-                        settingsObj: appSettings
-                        themeObj: themeManager
-                        onAddFolderRequested: addFolderDialog.open()
-                    }
-                }
-            }
-        }
-    }
-
-    // Immersive Now-Playing & Synced Lyrics Spatial Sheet
-    // Anchored below TitleBar and above Floating Playback Dock so drag & transport remain active
+    // Continuous 3-Zone Spatial Workspace (NavigationRail + ContentStage + FocusStage)
     Item {
-        id: lyricsSheetHost
-        visible: lyricsLoader.active
+        id: workspaceHost
         anchors.top: titleBar.bottom
         anchors.topMargin: 10
-        anchors.bottom: playbackDock.top
-        anchors.bottomMargin: 18
         anchors.left: parent.left
         anchors.leftMargin: 16
         anchors.right: parent.right
         anchors.rightMargin: 16
-        z: 16
-        transformOrigin: Item.Bottom
-        transform: Translate { id: lyricsShift; y: 0 }
+        anchors.bottom: playbackDock.top
+        anchors.bottomMargin: 14
+        z: 10
 
-        ParallelAnimation {
-            id: lyricsOpenAnim
-            NumberAnimation { target: lyricsSheetHost; property: "opacity"; from: 0.0; to: 1.0; duration: 260; easing.type: Easing.OutCubic }
-            NumberAnimation { target: lyricsSheetHost; property: "scale"; from: 0.965; to: 1.0; duration: DesignTokens.animSheet; easing.type: Easing.OutQuint }
-            NumberAnimation { target: lyricsShift; property: "y"; from: 38; to: 0; duration: DesignTokens.animSheet; easing.type: Easing.OutQuint }
-        }
+        // Browse Layer (Rail + Library Canvas); smoothly recesses when FocusStage expands full-screen
+        Item {
+            id: browseLayer
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.rightMargin: win.effectiveStageMode === "rail" ? (focusStage.width + 14) : 0
+            opacity: Math.max(0.0, 1.0 - win.animImmersive * 1.25)
+            visible: opacity > 0.01
+            enabled: win.stageMode !== "immersive"
+            scale: 1.0 - 0.035 * win.animImmersive
+            transform: Translate { x: -18 * win.animImmersive }
 
-        ParallelAnimation {
-            id: lyricsCloseAnim
-            NumberAnimation { target: lyricsSheetHost; property: "opacity"; to: 0.0; duration: 190; easing.type: Easing.InCubic }
-            NumberAnimation { target: lyricsSheetHost; property: "scale"; to: 0.97; duration: 190; easing.type: Easing.InCubic }
-            NumberAnimation { target: lyricsShift; property: "y"; to: 32; duration: 190; easing.type: Easing.InCubic }
-            onFinished: {
-                if (!win.lyricsOpen) win.lyricsKeepAlive = false
+            RowLayout {
+                anchors.fill: parent
+                spacing: win.compactWindow ? 12 : 16
+
+                NavigationRail {
+                    id: navRail
+                    Layout.fillHeight: true
+                    z: 20
+                    expanded: win.railExpanded
+                    activeSection: win.activeSection
+                    customPlaylists: library.playlists
+                    activePlaylistId: win.activePlaylistId
+                    onToggleExpandedRequested: win.railExpanded = !win.railExpanded
+                    onSectionSelected: (section) => {
+                        const changed = (win.activeSection !== section || win.activePlaylistId !== -1)
+                        win.activeSection = section
+                        win.activePlaylistId = -1
+                        if (section === "tracks" || section === "favorites" || section === "recent" || section === "folders") {
+                            library.loadSection(section)
+                        }
+                        if (changed) win.triggerViewTransition()
+                    }
+                    onPlaylistSelected: (plId, plName) => {
+                        const changed = (win.activeSection !== "playlist" || win.activePlaylistId !== plId)
+                        win.activeSection = "playlist"
+                        win.activePlaylistId = plId
+                        win.activePlaylistName = plName
+                        library.openPlaylist(plId)
+                        if (changed) win.triggerViewTransition()
+                    }
+                    onCreatePlaylistRequested: win.createPlaylistOpen = true
+                    onImportM3uRequested: importM3uDialog.open()
+                }
+
+                Rectangle {
+                    id: contentStage
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    radius: DesignTokens.radiusXl
+                    readonly property bool tracksVisible: win.activeSection === "tracks"
+                        || win.activeSection === "favorites" || win.activeSection === "recent"
+                        || win.activeSection === "playlist"
+                    color: tracksVisible ? "transparent" : DesignTokens.contentStageBg
+                    border.width: tracksVisible ? 0 : 1
+                    border.color: DesignTokens.hairlineBorder
+                    clip: true
+
+                    Item {
+                        id: stageViewport
+                        anchors.fill: parent
+                        transform: Translate { id: stageViewportShift; y: 0 }
+
+                        ParallelAnimation {
+                            id: viewSwitchAnim
+                            NumberAnimation {
+                                target: stageViewport
+                                property: "opacity"
+                                from: 0.0
+                                to: 1.0
+                                duration: 190
+                                easing.type: Easing.OutCubic
+                            }
+                            NumberAnimation {
+                                target: stageViewportShift
+                                property: "y"
+                                from: 10
+                                to: 0
+                                duration: 240
+                                easing.type: Easing.OutQuint
+                            }
+                        }
+
+                        Loader {
+                            anchors.fill: parent
+                            active: win.activeSection === "tracks"
+                                 || win.activeSection === "favorites"
+                                 || win.activeSection === "recent"
+                                 || win.activeSection === "playlist"
+                            visible: active
+                            sourceComponent: TracksView {
+                                controller: player
+                                lib: library
+                                sectionKey: win.activeSection
+                                activePlaylistId: win.activePlaylistId
+                                sectionTitle: {
+                                    if (win.activeSection === "favorites") return qsTr("Favorites")
+                                    if (win.activeSection === "recent") return qsTr("Recently Played")
+                                    if (win.activeSection === "playlist") return win.activePlaylistName
+                                    return qsTr("All Tracks")
+                                }
+                                onAddFolderRequested: addFolderDialog.open()
+                                onOpenFilesRequested: openAudioDialog.open()
+                                onExportPlaylistRequested: (plId) => {
+                                    win.exportPlaylistTargetId = plId
+                                    exportM3uDialog.open()
+                                }
+                                onDeletePlaylistRequested: (plId) => {
+                                    library.deletePlaylist(plId)
+                                    win.activeSection = "tracks"
+                                    win.activePlaylistId = -1
+                                    win.triggerViewTransition()
+                                }
+                                onInspectTrack: (map) => win.inspectedTrackMap = map
+                            }
+                        }
+
+                        Loader {
+                            anchors.fill: parent
+                            active: win.activeSection === "artists"
+                            visible: active
+                            sourceComponent: ArtistsView {
+                                controller: player
+                                lib: library
+                            }
+                        }
+
+                        Loader {
+                            anchors.fill: parent
+                            active: win.activeSection === "folders"
+                            visible: active
+                            sourceComponent: FoldersView {
+                                controller: player
+                                lib: library
+                                onAddFolderRequested: addFolderDialog.open()
+                            }
+                        }
+
+                        Loader {
+                            anchors.fill: parent
+                            active: win.activeSection === "settings"
+                            visible: active
+                            sourceComponent: SettingsView {
+                                controller: player
+                                lib: library
+                                settingsObj: appSettings
+                                themeObj: themeManager
+                                onAddFolderRequested: addFolderDialog.open()
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        Loader {
-            id: lyricsLoader
-            anchors.fill: parent
-            active: win.lyricsOpen || win.lyricsKeepAlive
-            sourceComponent: NowPlayingOverlay {
-                controller: player
-                lyricsCtrl: lyricsController
-                settingsObj: appSettings
-                onCloseRequested: win.lyricsOpen = false
-                onToggleFavorite: win.toggleCurrentFavorite()
+        // Right Continuous Focus Stage (Collapsed <-> Companion Rail <-> 100% Immersive)
+        FocusStage {
+            id: focusStage
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.right: parent.right
+            z: 15
+            controller: player
+            lyricsCtrl: lyricsController
+            settingsObj: appSettings
+            stageMode: win.effectiveStageMode
+            immersiveFactor: win.animImmersive
+            activeTab: win.stageTab
+            hideCoverForHero: heroLayer.isConcealing("nowplaying-cover")
+            onActiveTabChanged: {
+                if (win.stageTab !== activeTab) win.stageTab = activeTab
+            }
+
+            width: {
+                if (win.effectiveStageMode === "immersive") return workspaceHost.width
+                if (win.effectiveStageMode === "rail") {
+                    return Math.min(win.stageRailWidth, Math.max(DesignTokens.stageMinWidth, workspaceHost.width * 0.42))
+                }
+                return 0
+            }
+            opacity: win.effectiveStageMode === "collapsed" ? 0.0 : 1.0
+            visible: width > 2
+
+            Behavior on width {
+                enabled: !focusStage.draggingResize
+                NumberAnimation { duration: DesignTokens.animStage; easing.type: Easing.OutQuint }
+            }
+            Behavior on opacity {
+                NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+            }
+
+            onRequestImmersiveToggle: win.toggleImmersive(focusStage.currentCoverItem())
+            onRequestCollapse: win.stageMode = "collapsed"
+            onToggleFavorite: win.toggleCurrentFavorite()
+            onOpenTrackInfo: win.inspectedTrackMap = player.currentTrackMap
+            onDragResize: (deltaX) => {
+                win.stageRailWidth = Math.max(120, Math.min(workspaceHost.width * 0.72, win.stageRailWidth - deltaX))
+            }
+            onDragResizeFinished: (currentW) => {
+                if (currentW < 210) {
+                    win.stageMode = "collapsed"
+                    win.stageRailWidth = DesignTokens.stageDefaultWidth
+                } else if (currentW > Math.min(540, workspaceHost.width * 0.56)) {
+                    win.stageRailWidth = DesignTokens.stageDefaultWidth
+                    win.enterImmersive(focusStage.currentCoverItem())
+                } else {
+                    win.stageRailWidth = Math.max(DesignTokens.stageMinWidth, Math.min(DesignTokens.stageMaxWidth, currentW))
+                }
             }
         }
     }
 
-    // Click-outside catcher for the floating EQ drawer.
+    // Click-outside catcher for the floating EQ drawer
     MouseArea {
         visible: win.eqOpen
         anchors.top: titleBar.bottom
@@ -469,54 +633,13 @@ Window {
         onClicked: win.eqOpen = false
     }
 
-    // The lazy queue shares the workspace with the library.
-    Item {
-        id: queueHost
-        visible: queueLoader.active
-        anchors.top: titleBar.bottom
-        anchors.topMargin: 12
-        anchors.bottom: playbackDock.top
-        anchors.bottomMargin: 18
-        anchors.right: parent.right
-        anchors.rightMargin: 16
-        width: 282
-        z: 20
-        transform: Translate { id: queueShift; x: 0 }
-
-        ParallelAnimation {
-            id: queueOpenAnim
-            NumberAnimation { target: queueHost; property: "opacity"; from: 0.0; to: 1.0; duration: 220; easing.type: Easing.OutCubic }
-            NumberAnimation { target: queueShift; property: "x"; from: 42; to: 0; duration: DesignTokens.animPanel; easing.type: Easing.OutQuint }
-        }
-
-        ParallelAnimation {
-            id: queueCloseAnim
-            NumberAnimation { target: queueHost; property: "opacity"; to: 0.0; duration: 160; easing.type: Easing.InCubic }
-            NumberAnimation { target: queueShift; property: "x"; to: 36; duration: 160; easing.type: Easing.InCubic }
-            onFinished: {
-                if (!win.queueOpen) win.queueKeepAlive = false
-            }
-        }
-
-        Loader {
-            id: queueLoader
-            anchors.fill: parent
-            active: win.queueOpen || win.queueKeepAlive
-            sourceComponent: QueueDrawer {
-                controller: player
-                onCloseRequested: win.queueOpen = false
-            }
-        }
-    }
-
-    // Lazy-loaded Floating 10-band EQ & DSP Drawer (springs up above dock)
+    // Lazy-loaded Floating 10-band EQ & DSP Drawer (springs up above floating dock)
     Item {
         id: eqHost
         visible: eqLoader.active
-        anchors.right: parent.right
-        anchors.rightMargin: 20
+        anchors.right: playbackDock.right
         anchors.bottom: playbackDock.top
-        anchors.bottomMargin: 16
+        anchors.bottomMargin: 12
         width: eqLoader.item ? eqLoader.item.implicitWidth : 548
         height: eqLoader.item ? eqLoader.item.implicitHeight : 344
         z: 20
@@ -552,31 +675,34 @@ Window {
         }
     }
 
-    // Floating Capsule Playback Dock
+    // Centered Floating Morphing Capsule Playback Dock
     PlaybackBar {
         id: playbackDock
-        anchors.left: parent.left
-        anchors.leftMargin: DesignTokens.dockMarginX
-        anchors.right: parent.right
-        anchors.rightMargin: DesignTokens.dockMarginX
+        anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: DesignTokens.dockMarginBottom
+        width: Math.min(parent.width - 32,
+                        win.stageMode === "immersive" ? DesignTokens.dockImmersiveMaxWidth : DesignTokens.dockMaxWidth)
         height: DesignTokens.dockHeight
         z: 25
+
+        Behavior on width {
+            NumberAnimation { duration: 300; easing.type: Easing.OutQuint }
+        }
+
         controller: player
         compact: win.compactWindow
         lyricsOpen: win.lyricsOpen
         eqOpen: win.eqOpen
         queueOpen: win.queueOpen
-        onToggleQueue: {
-            win.queueOpen = !win.queueOpen
-            if (win.queueOpen) win.eqOpen = false
-        }
-        onToggleLyrics: win.lyricsOpen = !win.lyricsOpen
-        onToggleEq: {
-            win.eqOpen = !win.eqOpen
-            if (win.eqOpen) win.queueOpen = false
-        }
+        stageMode: win.effectiveStageMode
+        stageTab: win.stageTab
+        immersiveFactor: win.animImmersive
+        hideCoverForHero: heroLayer.isConcealing("nowplaying-cover")
+        onToggleQueue: win.toggleStageQueue()
+        onToggleLyrics: win.toggleStageLyrics(playbackDock.coverAnchorItem())
+        onCoverClicked: win.toggleImmersive(playbackDock.coverAnchorItem())
+        onToggleEq: win.eqOpen = !win.eqOpen
         onOpenTrackInfo: win.inspectedTrackMap = player.currentTrackMap
         onToggleFavorite: win.toggleCurrentFavorite()
     }
@@ -584,6 +710,13 @@ Window {
     function toggleCurrentFavorite() {
         if (player.trackId >= 0)
             library.toggleFavorite(player.trackId, player.trackIsFavorite)
+    }
+
+    // Global Shared-Element Hero Transition Layer
+    HeroTransitionLayer {
+        id: heroLayer
+        anchors.fill: parent
+        z: 60
     }
 
     // Lazy-loaded Technical Track Metadata Inspector Modal

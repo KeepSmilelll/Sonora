@@ -9,6 +9,9 @@ Rectangle {
     property bool compact: false
     property bool isMaximized: false
     property bool miniModeAvailable: true
+    property bool railExpanded: false
+    property string stageMode: "rail"
+    property real immersiveFactor: 0.0
 
     signal searchEdited(string text)
     signal toggleMiniMode()
@@ -17,6 +20,8 @@ Rectangle {
     signal minimizeClicked()
     signal maximizeRestoreClicked()
     signal closeClicked()
+    signal toggleRailExpanded()
+    signal toggleStagePanel()
 
     implicitHeight: DesignTokens.titleBarHeight
     color: "transparent"
@@ -24,7 +29,11 @@ Rectangle {
     function syncInteractiveRegions() {
         if (!root.Window.window || typeof platformBridge === "undefined" || !platformBridge) return
         const rects = []
-        if (searchPill.width > 0 && searchPill.height > 0) {
+        if (railToggleBtn.visible && railToggleBtn.opacity > 0.3 && railToggleBtn.width > 0 && railToggleBtn.height > 0) {
+            const rt = railToggleBtn.mapToItem(null, 0, 0)
+            rects.push({ x: rt.x, y: rt.y, width: railToggleBtn.width, height: railToggleBtn.height })
+        }
+        if (root.immersiveFactor < 0.5 && searchPill.width > 0 && searchPill.height > 0) {
             const sp = searchPill.mapToItem(null, 0, 0)
             rects.push({ x: sp.x, y: sp.y, width: searchPill.width, height: searchPill.height })
         }
@@ -37,6 +46,8 @@ Rectangle {
 
     onWidthChanged: syncInteractiveRegions()
     onHeightChanged: syncInteractiveRegions()
+    onRailExpandedChanged: Qt.callLater(syncInteractiveRegions)
+    onImmersiveFactorChanged: Qt.callLater(syncInteractiveRegions)
     Component.onCompleted: Qt.callLater(syncInteractiveRegions)
 
     Rectangle {
@@ -45,6 +56,7 @@ Rectangle {
         anchors.bottom: parent.bottom
         height: 1
         color: DesignTokens.borderSubtle
+        opacity: Math.max(0.0, 1.0 - root.immersiveFactor)
     }
 
     // Cross-platform fallback for non-Win32 platforms (on Windows, Win32WindowHelper maps
@@ -74,6 +86,7 @@ Rectangle {
         property string iconName: "plus"
         property real iconSize: 14
         property bool isClose: false
+        property bool active: false
         property real iconRotation: 0
         signal clicked()
 
@@ -87,6 +100,7 @@ Rectangle {
                 return "transparent"
             }
             if (btnMa.pressed) return DesignTokens.surfacePressed
+            if (btn.active) return DesignTokens.accentSoft
             if (btnMa.containsMouse) return DesignTokens.surfaceHover
             return "transparent"
         }
@@ -102,7 +116,7 @@ Rectangle {
             rotation: btn.iconRotation
             color: (btn.isClose && btnMa.containsMouse)
                 ? "#ffffff"
-                : (btnMa.containsMouse ? DesignTokens.textPrimary : DesignTokens.textSecondary)
+                : (btn.active ? DesignTokens.accentLight : (btnMa.containsMouse ? DesignTokens.textPrimary : DesignTokens.textSecondary))
         }
 
         MouseArea {
@@ -120,23 +134,42 @@ Rectangle {
         anchors.rightMargin: 10
         spacing: 12
 
-        // Spatial brand mark
+        // Spatial brand mark + Rail Toggle
         RowLayout {
             spacing: 9
             Layout.fillWidth: false
-            Layout.preferredWidth: root.compact ? DesignTokens.compactSidebarWidth : 205
+            Layout.preferredWidth: root.compact ? 176 : 210
+
+            BarActionBtn {
+                id: railToggleBtn
+                iconName: root.railExpanded ? "sidebar_collapse" : "sidebar_expand"
+                iconSize: 15
+                opacity: Math.max(0.0, 1.0 - root.immersiveFactor * 1.8)
+                enabled: root.immersiveFactor < 0.5
+                onXChanged: root.syncInteractiveRegions()
+                onYChanged: root.syncInteractiveRegions()
+                onWidthChanged: root.syncInteractiveRegions()
+                onClicked: root.toggleRailExpanded()
+            }
 
             Rectangle {
                 implicitWidth: 26
                 implicitHeight: 26
                 radius: DesignTokens.radiusSm
-                color: "#f9d4df"
+                color: DesignTokens.isDark ? "#2d1520" : "#f9d4df"
+                border.width: 1
+                border.color: DesignTokens.isDark
+                    ? Qt.rgba(0.98, 0.36, 0.50, 0.34)
+                    : Qt.rgba(0.83, 0.09, 0.26, 0.14)
+                Behavior on color { ColorAnimation { duration: DesignTokens.animFast } }
+                Behavior on border.color { ColorAnimation { duration: DesignTokens.animFast } }
 
                 IconGlyph {
                     anchors.centerIn: parent
                     name: "wave"
                     size: 17
-                    color: "#d41842"
+                    color: DesignTokens.isDark ? "#ff6382" : "#d41842"
+                    Behavior on color { ColorAnimation { duration: DesignTokens.animFast } }
                 }
             }
 
@@ -152,10 +185,12 @@ Rectangle {
             Item { Layout.fillWidth: true }
         }
 
-        // Center frosted search capsule (expands smoothly on focus)
+        // Center frosted search capsule (expands smoothly on focus; fades in immersive mode)
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            opacity: Math.max(0.0, 1.0 - root.immersiveFactor * 1.8)
+            enabled: root.immersiveFactor < 0.5
 
             Rectangle {
                 id: searchPill
@@ -325,6 +360,13 @@ Rectangle {
                 iconName: "mini"
                 iconSize: 15
                 onClicked: root.toggleMiniMode()
+            }
+
+            BarActionBtn {
+                iconName: "stage_panel"
+                iconSize: 15
+                active: root.stageMode !== "collapsed"
+                onClicked: root.toggleStagePanel()
             }
 
             Rectangle {

@@ -12,9 +12,12 @@ GlassPanel {
 
     implicitWidth: 536
     implicitHeight: 404
-    radius: DesignTokens.radiusXl
+    radius: 22
+    panelColor: DesignTokens.dockFloatingBg
+    borderColor: DesignTokens.borderHighlight
     elevated: true
     shadowEnabled: true
+    specularEnabled: true
 
     property int eqRev: 0
     readonly property var bandLabels: ["31", "62", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"]
@@ -99,9 +102,11 @@ GlassPanel {
             Layout.fillWidth: true
             implicitHeight: 88
             radius: 12
-            color: DesignTokens.surfaceInput
+            color: root.settingsObj.eqEnabled
+                ? Qt.tint(DesignTokens.surfaceInput, Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, 0.05))
+                : DesignTokens.surfaceInput
             border.width: 1
-            border.color: DesignTokens.borderOuter
+            border.color: DesignTokens.hairlineBorder
             clip: true
 
             // +6 / 0 / -6 dB reference hairlines

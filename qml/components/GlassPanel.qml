@@ -10,8 +10,10 @@ Item {
     property color panelColor: elevated ? DesignTokens.surfaceElevated : DesignTokens.surfaceCard
     property color borderColor: elevated ? DesignTokens.borderHighlight : DesignTokens.borderOuter
     property bool elevated: false
+    property int elevationLevel: elevated ? 2 : 1
     property bool shadowEnabled: elevated
     property bool specularEnabled: true
+    property bool borderless: false
 
     // Outer ambient shadow ring (zero GPU shader blur cost)
     Rectangle {
@@ -44,7 +46,7 @@ Item {
         anchors.fill: parent
         radius: root.radius
         color: root.panelColor
-        border.width: 1
+        border.width: root.borderless ? 0 : 1
         border.color: root.borderColor
         clip: true
 

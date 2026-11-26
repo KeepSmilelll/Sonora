@@ -12,6 +12,7 @@
     <message><source>Recently Played</source><translation>最近播放</translation></message>
     <message><source>New Playlist</source><translation>新建歌单</translation></message>
     <message><source>Playlist name...</source><translation>输入歌单名称…</translation></message>
+    <message><source>Enter playlist name...</source><translation>输入歌单名称…</translation></message>
     <message><source>Cancel</source><translation>取消</translation></message>
     <message><source>Create</source><translation>创建</translation></message>
     <message><source>Drop audio files, folders, .cue, or .m3u8 to play</source><translation>松开鼠标播放音频、文件夹、.cue 或 .m3u8</translation></message>
@@ -34,12 +35,40 @@
     <message><source>Settings</source><translation>设置</translation></message>
 </context>
 <context>
+    <name>NavigationRail</name>
+    <message><source>LIBRARY</source><translation>资料库</translation></message>
+    <message><source>All Tracks</source><translation>全部歌曲</translation></message>
+    <message><source>Albums</source><translation>专辑</translation></message>
+    <message><source>Artists</source><translation>歌手</translation></message>
+    <message><source>Folders</source><translation>文件夹</translation></message>
+    <message><source>COLLECTIONS</source><translation>精选合集</translation></message>
+    <message><source>Favorites</source><translation>我喜欢</translation></message>
+    <message><source>Recently Played</source><translation>最近播放</translation></message>
+    <message><source>Playlists</source><translation>歌单</translation></message>
+    <message><source>PLAYLISTS</source><translation>自建歌单</translation></message>
+    <message><source>Settings</source><translation>设置</translation></message>
+</context>
+<context>
+    <name>FocusStage</name>
+    <message><source>Lyrics</source><translation>歌词</translation></message>
+    <message><source>Queue</source><translation>队列</translation></message>
+    <message><source>Clear</source><translation>清空</translation></message>
+    <message><source>Ready to Listen</source><translation>准备聆听</translation></message>
+    <message><source>Unknown Artist</source><translation>未知歌手</translation></message>
+    <message><source>Drop audio files or pick a track to begin</source><translation>拖入音频文件或选择曲目开始播放</translation></message>
+    <message><source>No Lyrics Available</source><translation>暂无歌词</translation></message>
+    <message><source>Place a matching .lrc file next to the audio file or embed USLT/LYRICS tags.</source><translation>请将同名 .lrc 歌词放在音频同目录，或使用内嵌 USLT / LYRICS 标签。</translation></message>
+    <message><source>Now Playing</source><translation>正在播放</translation></message>
+    <message><source>Up Next</source><translation>接下来</translation></message>
+    <message><source>Queue is empty
+Drop audio files anywhere to start listening</source><translation>播放队列为空
+拖入本地音频文件即可开始聆听</translation></message>
+</context>
+<context>
     <name>PlaybackBar</name>
     <message><source>No Track Playing</source><translation>未在播放</translation></message>
     <message><source>Unknown Artist</source><translation>未知歌手</translation></message>
     <message><source>Drop audio files or folders to play</source><translation>拖入音频文件或文件夹开始播放</translation></message>
-    <message><source>Bit-Perfect</source><translation>源码直出</translation></message>
-    <message><source>Exclusive</source><translation>独占模式</translation></message>
 </context>
 <context>
     <name>QueueDrawer</name>
@@ -55,8 +84,6 @@ Drop audio files anywhere to start listening</source><translation>播放队列�
 </context>
 <context>
     <name>TracksView</name>
-    <message><source>Now Playing</source><translation>正在播放</translation></message>
-    <message><source>View Lyrics</source><translation>查看歌词</translation></message>
     <message><source>Add to Favorites</source><translation>收藏曲目</translation></message>
     <message><source>Remove from Favorites</source><translation>取消收藏</translation></message>
     <message><source>All Tracks</source><translation>全部歌曲</translation></message>
@@ -92,9 +119,12 @@ Drop audio files anywhere to start listening</source><translation>播放队列�
 </context>
 <context>
     <name>ArtistsView</name>
+    <message><source>Artists</source><translation>歌手</translation></message>
     <message><source>Artists (%1)</source><translation>歌手 (%1)</translation></message>
     <message><source>%1 album(s) · %2 track(s)</source><translation>%1 张专辑 · %2 首歌曲</translation></message>
     <message><source>Select an Artist</source><translation>选择一位歌手</translation></message>
+    <message><source>%1 track(s)</source><translation>共 %1 首曲目</translation></message>
+    <message><source>Choose an artist on the left to browse tracks</source><translation>在左侧选择一位歌手以浏览曲目</translation></message>
     <message><source>Play All</source><translation>播放全部</translation></message>
 </context>
 <context>
@@ -102,7 +132,10 @@ Drop audio files anywhere to start listening</source><translation>播放队列�
     <message><source>Folders</source><translation>文件夹</translation></message>
     <message><source>Watched Music Directories</source><translation>已监控的音乐目录</translation></message>
     <message><source>+ Add Folder</source><translation>+ 添加目录</translation></message>
+    <message><source>Add Folder</source><translation>添加目录</translation></message>
+    <message><source>Add Music Folder</source><translation>添加音乐目录</translation></message>
     <message><source>Add local music folders to browse by directory structure</source><translation>添加本地音乐目录后可按原始文件夹结构浏览</translation></message>
+    <message><source>Add local music folders to browse directly by directory structure</source><translation>添加本地音乐目录后即可按原始文件夹结构直接浏览</translation></message>
 </context>
 <context>
     <name>NowPlayingOverlay</name>
@@ -131,6 +164,7 @@ Drop audio files anywhere to start listening</source><translation>播放队列�
     <name>EqDrawer</name>
     <message><source>Equalizer &amp; DSP</source><translation>10 段参数均衡器</translation></message>
     <message><source>Preamp: %1 dB</source><translation>前级增益：%1 dB</translation></message>
+    <message><source>Preamp: %1%2 dB</source><translation>前级增益：%1%2 dB</translation></message>
     <message><source>Reset Flat</source><translation>恢复平直</translation></message>
 </context>
 <context>
@@ -161,6 +195,7 @@ Drop audio files anywhere to start listening</source><translation>播放队列�
     <message><source>Real-Time Spectrum Visualizer</source><translation>实时 GPU 频谱可视化</translation></message>
     <message><source>Watched Music Folders</source><translation>本地曲库目录</translation></message>
     <message><source>+ Add Folder</source><translation>+ 添加目录</translation></message>
+    <message><source>Add Folder</source><translation>添加目录</translation></message>
     <message><source>Scanning...</source><translation>扫描中…</translation></message>
     <message><source>Rescan Now</source><translation>立即重新扫描</translation></message>
     <message><source>Desktop Integration (Windows)</source><translation>桌面系统集成 (Windows)</translation></message>
@@ -170,6 +205,7 @@ Drop audio files anywhere to start listening</source><translation>播放队列�
 <context>
     <name>MiniPlayerWindow</name>
     <message><source>Idle</source><translation>空闲</translation></message>
+    <message><source>Ready to play</source><translation>准备播放</translation></message>
 </context>
 <context>
     <name>sonora::PlaybackController</name>

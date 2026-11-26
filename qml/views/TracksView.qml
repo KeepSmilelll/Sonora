@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import QtQuick.Effects
 import Sonora.UI
 
 Item {
@@ -18,7 +17,6 @@ Item {
     signal exportPlaylistRequested(int playlistId)
     signal deletePlaylistRequested(int playlistId)
     signal inspectTrack(var trackMap)
-    signal showLyricsRequested()
 
     readonly property bool compact: width < 650
     readonly property bool shortWindow: height < 540
@@ -104,10 +102,10 @@ Item {
         width: sortHeader.width
         height: libraryLayout.height - sortHeader.y
         visible: sortHeader.visible
-        radius: DesignTokens.radiusMd
-        color: DesignTokens.librarySurface
+        radius: DesignTokens.radiusLg
+        color: DesignTokens.contentStageBg
         border.width: 1
-        border.color: DesignTokens.borderSubtle
+        border.color: DesignTokens.hairlineBorder
     }
 
     ColumnLayout {
@@ -117,169 +115,13 @@ Item {
         anchors.rightMargin: root.compact ? 6 : 0
         spacing: root.shortWindow ? 8 : 12
 
-        GlassPanel {
-            id: nowPlayingBanner
-            Layout.fillWidth: true
-            Layout.preferredHeight: root.shortWindow ? 153 : 221
-            visible: root.sectionKey === "tracks" && root.controller.hasTrack && root.lib.searchQuery.length === 0
-            radius: DesignTokens.radiusLg
-            panelColor: DesignTokens.mediaBannerSurface
-            specularEnabled: false
-            shadowEnabled: false
-
-            Item {
-                anchors.fill: parent
-                anchors.margins: 1
-
-                Item {
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    anchors.right: parent.right
-                    width: Math.min(root.compact ? 220 : 545, parent.width * (root.compact ? 0.55 : 0.61))
-                    clip: true
-
-                    Image {
-                        id: bannerArt
-                        anchors.fill: parent
-                        source: nowPlayingBanner.visible ? root.controller.trackCoverUrl : ""
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        cache: false
-                        visible: false
-                    }
-
-                    Rectangle {
-                        id: bannerMask
-                        anchors.fill: parent
-                        topRightRadius: DesignTokens.radiusLg - 1
-                        bottomRightRadius: DesignTokens.radiusLg - 1
-                        visible: false
-                        layer.enabled: true
-                    }
-
-                    MultiEffect {
-                        anchors.fill: bannerArt
-                        visible: bannerArt.status === Image.Ready
-                        source: bannerArt
-                        maskEnabled: true
-                        maskSource: bannerMask
-                        maskThresholdMin: 0.5
-                        maskSpreadAtMin: 1.0
-                    }
-
-                    IconGlyph {
-                        anchors.centerIn: parent
-                        visible: bannerArt.status !== Image.Ready
-                        name: "music"
-                        size: root.compact ? 44 : 64
-                        color: DesignTokens.textTertiary
-                        opacity: 0.56
-                    }
-
-                    Rectangle {
-                        anchors.fill: parent
-                        topRightRadius: DesignTokens.radiusLg - 1
-                        bottomRightRadius: DesignTokens.radiusLg - 1
-                        visible: bannerArt.status === Image.Ready
-                        gradient: Gradient {
-                            orientation: Gradient.Horizontal
-                            GradientStop { position: 0.0; color: DesignTokens.mediaBannerSurface }
-                            GradientStop { position: 0.58; color: Qt.alpha(DesignTokens.mediaBannerSurface, 0.18) }
-                            GradientStop { position: 1.0; color: Qt.alpha(DesignTokens.mediaBannerSurface, 0.10) }
-                        }
-                    }
-                }
-
-                ColumnLayout {
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.leftMargin: root.shortWindow ? 15 : 23
-                    anchors.rightMargin: root.shortWindow ? 24 : Math.round(parent.width * 0.36)
-                    anchors.topMargin: root.shortWindow ? 13 : 20
-                    spacing: root.shortWindow ? 4 : 6
-
-                    RowLayout {
-                        spacing: 7
-
-                        NowPlayingBars {
-                            size: 15
-                            playing: root.controller.isPlaying
-                            barColor: DesignTokens.accentLight
-                        }
-
-                        Text {
-                            text: qsTr("Now Playing")
-                            color: DesignTokens.accentLight
-                            font.family: DesignTokens.fontFamily
-                            font.pixelSize: 11
-                            font.weight: Font.DemiBold
-                        }
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: root.controller.trackTitle
-                        elide: Text.ElideRight
-                        color: DesignTokens.textPrimary
-                        font.family: DesignTokens.fontFamily
-                        font.pixelSize: root.shortWindow ? 22 : 48
-                        font.weight: Font.Bold
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: [root.controller.trackArtist, root.controller.trackAlbum].filter(Boolean).join("  \u00b7  ")
-                        elide: Text.ElideRight
-                        color: DesignTokens.textSecondary
-                        font.family: DesignTokens.fontFamily
-                        font.pixelSize: 13
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Layout.topMargin: root.shortWindow ? 1 : 4
-                        spacing: 5
-
-                        FormatBadge {
-                            text: root.controller.currentTrackMap.isDsd ? root.controller.trackFormatBadge
-                                : (root.controller.currentTrackMap.codec || root.controller.trackFormatBadge)
-                        }
-
-                        FormatBadge {
-                            readonly property var track: root.controller.currentTrackMap
-                            readonly property int rate: track.sampleRate ?? 0
-                            readonly property int depth: track.bitDepth ?? 0
-                            badgeTone: DesignTokens.badgeGold
-                            text: {
-                                if (rate <= 0) return ""
-                                const rateText = track.isDsd
-                                    ? (rate / 1000000).toFixed(2) + " MHz"
-                                    : (rate / 1000).toLocaleString(Qt.locale(), "f", rate % 1000 ? 1 : 0) + " kHz"
-                                return depth > 0 ? qsTr("%1 bit / %2").arg(depth).arg(rateText) : rateText
-                            }
-                        }
-                    }
-
-                    SonoraButton {
-                        visible: !root.shortWindow
-                        Layout.topMargin: 3
-                        primary: true
-                        text: qsTr("View Lyrics")
-                        onClicked: root.showLyricsRequested()
-                    }
-                }
-            }
-        }
-
-        // Spatial Section Hero Header
         RowLayout {
             Layout.fillWidth: true
-            spacing: 13
+            spacing: 12
 
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 8
+                spacing: 10
 
                 Text {
                     Layout.minimumWidth: 0
@@ -287,22 +129,39 @@ Item {
                     text: root.sectionTitle
                     color: DesignTokens.textPrimary
                     font.family: DesignTokens.fontFamily
-                    font.pixelSize: 21
+                    font.pixelSize: 24
                     font.weight: Font.Bold
+                    font.letterSpacing: -0.3
                 }
 
-                Text {
-                    Layout.fillWidth: true
-                    Layout.minimumWidth: 0
-                    elide: Text.ElideRight
-                    text: root.lib.scanning
-                        ? qsTr("Scanning library... (%1 / %2)").arg(root.lib.scanProgress).arg(root.lib.scanTotal)
-                        : qsTr("%1 track(s)").arg(root.lib.tracksModel.count)
-                    color: root.lib.scanning ? DesignTokens.accent : DesignTokens.textTertiary
-                    font.family: DesignTokens.fontFamily
-                    font.pixelSize: 12
-                    font.weight: root.lib.scanning ? Font.Medium : Font.Normal
+                Rectangle {
+                    Layout.maximumWidth: 260
+                    implicitWidth: Math.min(260, trackCountText.implicitWidth + 18)
+                    implicitHeight: 24
+                    radius: 12
+                    color: root.lib.scanning ? DesignTokens.accentSoft : DesignTokens.surfaceInput
+                    border.width: 1
+                    border.color: root.lib.scanning
+                        ? Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, 0.30)
+                        : DesignTokens.hairlineBorder
+
+                    Text {
+                        id: trackCountText
+                        anchors.centerIn: parent
+                        width: Math.min(implicitWidth, parent.width - 14)
+                        elide: Text.ElideRight
+                        text: root.lib.scanning
+                            ? qsTr("Scanning library... (%1 / %2)").arg(root.lib.scanProgress).arg(root.lib.scanTotal)
+                            : qsTr("%1 track(s)").arg(root.lib.tracksModel.count)
+                        color: root.lib.scanning ? DesignTokens.accent : DesignTokens.textTertiary
+                        font.family: DesignTokens.fontFamily
+                        font.pixelSize: 11
+                        font.weight: root.lib.scanning ? Font.DemiBold : Font.Medium
+                        font.features: ({ "tnum": 1 })
+                    }
                 }
+
+                Item { Layout.fillWidth: true }
             }
 
             SonoraButton {
@@ -364,7 +223,7 @@ Item {
                 anchors.margins: 8
                 anchors.bottomMargin: 0
                 height: 1
-                color: DesignTokens.borderSubtle
+                color: DesignTokens.hairlineBorder
             }
 
             RowLayout {
@@ -459,6 +318,17 @@ Item {
                 border.width: isCurrent ? 1 : 0
                 border.color: Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, DesignTokens.isDark ? 0.28 : 0.18)
                 Behavior on color { ColorAnimation { duration: 110 } }
+
+                Rectangle {
+                    visible: row.isCurrent
+                    width: 3
+                    height: 18
+                    radius: 1.5
+                    anchors.left: parent.left
+                    anchors.leftMargin: 2
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: DesignTokens.accent
+                }
 
                 RowLayout {
                     anchors.fill: parent
@@ -705,6 +575,9 @@ Item {
                 width: Math.min(parent.width - 64, 460)
                 height: emptyCol.implicitHeight + 52
                 radius: DesignTokens.radiusXl
+                panelColor: DesignTokens.stageSurfaceBg
+                borderColor: DesignTokens.hairlineBorder
+                shadowEnabled: false
 
                 ColumnLayout {
                     id: emptyCol

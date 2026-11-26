@@ -34,6 +34,9 @@ Item {
         Layout.fillWidth: true
         implicitHeight: inner.implicitHeight + 38
         radius: DesignTokens.radiusLg
+        panelColor: DesignTokens.stageSurfaceBg
+        borderColor: DesignTokens.hairlineBorder
+        specularEnabled: true
         shadowEnabled: false
 
         ColumnLayout {
@@ -74,7 +77,7 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 implicitHeight: 1
-                color: DesignTokens.borderSubtle
+                color: DesignTokens.hairlineBorder
             }
         }
     }
@@ -97,25 +100,16 @@ Item {
 
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 13
-
-                Rectangle {
-                    implicitWidth: 42
-                    implicitHeight: 42
-                    radius: 13
-                    color: DesignTokens.accentSoft
-                    border.width: 1
-                    border.color: Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, 0.25)
-                    IconGlyph { anchors.centerIn: parent; name: "settings"; size: 19; color: DesignTokens.accent }
-                }
+                spacing: 12
 
                 Text {
                     Layout.fillWidth: true
                     text: qsTr("Settings")
                     color: DesignTokens.textPrimary
                     font.family: DesignTokens.fontFamily
-                    font.pixelSize: 23
+                    font.pixelSize: 24
                     font.weight: Font.Bold
+                    font.letterSpacing: -0.3
                 }
 
                 FormatBadge {

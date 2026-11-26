@@ -62,6 +62,11 @@ Item {
         case "wave":          return "M 3 12 H 6 L 9 5 L 13 19 L 16 10 L 18 12 H 21"
         case "import":        return "M 12 3 V 15 M 7 10 L 12 15 L 17 10 M 4 19 H 20"
         case "export":        return "M 12 15 V 3 M 7 8 L 12 3 L 17 8 M 4 19 H 20"
+        case "sidebar_expand":   return "M 4 5 H 20 V 19 H 4 Z M 9 5 V 19 M 13 9.5 L 15.8 12 L 13 14.5"
+        case "sidebar_collapse": return "M 4 5 H 20 V 19 H 4 Z M 9 5 V 19 M 15.8 9.5 L 13 12 L 15.8 14.5"
+        case "stage_panel":      return "M 3 5 H 21 V 19 H 3 Z M 14.5 5 V 19"
+        case "expand":           return "M 14 4 H 20 V 10 M 20 4 L 13.5 10.5 M 10 20 H 4 V 14 M 4 20 L 10.5 13.5"
+        case "collapse":         return "M 4 14 H 10 V 20 M 10 14 L 3.5 20.5 M 20 10 H 14 V 4 M 14 10 L 20.5 3.5"
         default:              return "M 9 18 V 5 L 21 3 V 16"
         }
     }

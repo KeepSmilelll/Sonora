@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Effects
 import Sonora.UI
 
 Item {
@@ -21,11 +22,14 @@ Item {
 
     GlassPanel {
         anchors.centerIn: parent
-        width: Math.min(parent.width - 48, 504)
+        width: Math.min(parent.width - 48, 512)
         height: Math.min(parent.height - 64, infoCol.implicitHeight + 44)
-        radius: DesignTokens.radiusXl
+        radius: 22
+        panelColor: DesignTokens.dockFloatingBg
+        borderColor: DesignTokens.borderHighlight
         elevated: true
         shadowEnabled: true
+        specularEnabled: true
 
         MouseArea { anchors.fill: parent }
 
@@ -56,6 +60,7 @@ Item {
                     color: DesignTokens.textPrimary
                     font.family: DesignTokens.fontFamily
                     font.pixelSize: 12
+                    font.features: ({ "tnum": 1 })
                 }
             }
 
@@ -63,7 +68,7 @@ Item {
                 visible: showDivider
                 Layout.fillWidth: true
                 implicitHeight: 1
-                color: DesignTokens.borderSubtle
+                color: DesignTokens.hairlineBorder
             }
         }
 
@@ -77,23 +82,78 @@ Item {
 
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 10
+                spacing: 12
 
                 Rectangle {
-                    implicitWidth: 30
-                    implicitHeight: 30
-                    radius: 9
-                    color: DesignTokens.accentSoft
-                    IconGlyph { anchors.centerIn: parent; name: "info"; size: 15; color: DesignTokens.accent }
+                    implicitWidth: 52
+                    implicitHeight: 52
+                    radius: DesignTokens.radiusMd
+                    color: DesignTokens.surfaceInput
+                    border.width: 1
+                    border.color: DesignTokens.borderHighlight
+                    clip: true
+
+                    Rectangle {
+                        id: infoCoverMask
+                        anchors.fill: parent
+                        radius: DesignTokens.radiusMd
+                        visible: false
+                        layer.enabled: true
+                        layer.smooth: true
+                    }
+
+                    Image {
+                        id: infoCoverImg
+                        anchors.fill: parent
+                        source: (root.trackMap.coverHash && root.trackMap.coverHash.length > 0)
+                            ? ("image://cover/" + root.trackMap.coverHash + "?size=160") : ""
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        cache: false
+                        visible: false
+                    }
+
+                    MultiEffect {
+                        anchors.fill: infoCoverImg
+                        visible: infoCoverImg.status === Image.Ready
+                        source: infoCoverImg
+                        maskEnabled: true
+                        maskSource: infoCoverMask
+                        maskThresholdMin: 0.5
+                        maskSpreadAtMin: 1.0
+                    }
+
+                    IconGlyph {
+                        anchors.centerIn: parent
+                        name: "music"
+                        size: 22
+                        color: DesignTokens.accent
+                        visible: infoCoverImg.status !== Image.Ready
+                    }
                 }
 
-                Text {
+                ColumnLayout {
                     Layout.fillWidth: true
-                    text: qsTr("Track Technical Info")
-                    color: DesignTokens.textPrimary
-                    font.family: DesignTokens.fontFamily
-                    font.pixelSize: 16
-                    font.weight: Font.Bold
+                    spacing: 2
+
+                    Text {
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        text: root.trackMap.title || qsTr("Track Technical Info")
+                        color: DesignTokens.textPrimary
+                        font.family: DesignTokens.fontFamily
+                        font.pixelSize: 16
+                        font.weight: Font.Bold
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        text: root.trackMap.artist || qsTr("Track Technical Info")
+                        color: DesignTokens.textSecondary
+                        font.family: DesignTokens.fontFamily
+                        font.pixelSize: 12
+                    }
                 }
 
                 FormatBadge {
@@ -135,7 +195,7 @@ Item {
                 radius: DesignTokens.radiusMd
                 color: DesignTokens.surfaceInput
                 border.width: 1
-                border.color: DesignTokens.borderOuter
+                border.color: DesignTokens.hairlineBorder
 
                 ColumnLayout {
                     id: specList

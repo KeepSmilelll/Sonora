@@ -6,7 +6,6 @@ Rectangle {
 
     property string text: ""
     property bool compact: false
-    property color badgeTone: "transparent"
 
     visible: text.length > 0
     implicitHeight: compact ? 18 : 21
@@ -14,7 +13,6 @@ Rectangle {
     radius: height / 2
 
     readonly property color badgeColor: {
-        if (badgeTone.a > 0) return badgeTone
         if (text.indexOf("DSD") === 0) return DesignTokens.badgePurple
         if (text === "Hi-Res" || text.indexOf("Exclusive") >= 0 || text.indexOf("Bit-Perfect") >= 0
             || text === "源码直出" || text === "独占模式") {
