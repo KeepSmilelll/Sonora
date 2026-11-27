@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 import QtQuick.Effects
-import Sonora.UI
+import Virela.UI
 
 Item {
     id: root
@@ -341,7 +341,7 @@ Item {
             Layout.preferredHeight: 30
             spacing: 8
 
-            SonoraButton {
+            VirelaButton {
                 compact: true
                 iconName: "chevron_left"
                 text: qsTr("Albums")
@@ -498,7 +498,7 @@ Item {
                     Layout.topMargin: 6
                     spacing: 10
 
-                    SonoraButton {
+                    VirelaButton {
                         primary: true
                         iconName: "play"
                         text: qsTr("Play Album")

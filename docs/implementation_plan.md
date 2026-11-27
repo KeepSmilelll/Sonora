@@ -1,8 +1,8 @@
-# Sonora — 高颜值极致低内存本地音乐播放器实现计划
+# Virela — 高颜值极致低内存本地音乐播放器实现计划
 
 ## Goal Description
 
-构建一款面向 **Windows 10/11** 的本地音乐播放器（暂定名 **Sonora**），采用 **Qt 6.9.1 (C++20 / QML)** + **FFmpeg 8.1** + **`miniaudio`** 技术栈，在实现 Apple Music 风格现代极简磨砂视觉体验与完整发烧级音频/曲库能力的同时，将常驻播放内存严格控制在 **40–80 MB** 以内。
+构建一款面向 **Windows 10/11** 的本地音乐播放器（暂定名 **Virela**），采用 **Qt 6.9.1 (C++20 / QML)** + **FFmpeg 8.1** + **`miniaudio`** 技术栈，在实现 Apple Music 风格现代极简磨砂视觉体验与完整发烧级音频/曲库能力的同时，将常驻播放内存严格控制在 **40–80 MB** 以内。
 
 ### 核心目标与需求对齐
 
@@ -28,7 +28,7 @@
 
 ## Open Questions
 
-1. **软件名称确认**：当前方案暂定工程与应用名为 **Sonora**（窗口标题与进程名为 `Sonora`）。如果你已有心仪名称，请在审批时告知，我在建仓阶段即统一命名。
+1. **软件名称确认**：当前方案暂定工程与应用名为 **Virela**（窗口标题与进程名为 `Virela`）。如果你已有心仪名称，请在审批时告知，我在建仓阶段即统一命名。
 2. **Google Drive 云端归档**：当前工作区已关联空目录 `Local_Music_App/`。审批后是否需要我把最终架构文档或每阶段交付说明/源码归档同步至该 Drive 目录？
 
 ---
@@ -134,7 +134,7 @@ sequenceDiagram
 | Qt 6.9.1 核心 + QML + Quick (D3D11 QRhi) | ~26–38 MB | 仅链接 `Core/Gui/Qml/Quick/QuickControls2/QuickDialogs2`；使用 `QGuiApplication`；启用 `qmlcachegen` AOT 编译；UI 图标采用单套矢量图标字体（< 300 KB）替代海量 SVG/PNG |
 | FFmpeg 8.1 流式解码 + 环形缓冲 | ~6–10 MB | 逐帧流式解码；SPSC 环形缓冲固定容量（~1.5 MB @ 96kHz/2ch/f32）；最多同时驻留 1 个活跃解码器 + 1 个 Gapless 预载解码器；停止后立即释放 `AVFormatContext` |
 | `miniaudio` 音频后端 | ~1–2 MB | 宏裁剪 `MA_NO_ENGINE`、`MA_NO_DECODING`、`MA_NO_ENCODING`、`MA_NO_NODE_GRAPH`、`MA_NO_RESOURCE_MANAGER`，仅保留极简 `ma_device` |
-| 封面缓存 (`CoverArtProvider`) | ~4–10 MB (硬上限) | `QImageReader::setScaledSize()` 解码期直接降采样（列表 96×96、网格/播放页 360×360）；RAM LRU 硬上限 8 MB；同专辑共用 1 份 `cover_hash` 磁盘缩略图缓存（`%LOCALAPPDATA%/Sonora/cache/covers`） |
+| 封面缓存 (`CoverArtProvider`) | ~4–10 MB (硬上限) | `QImageReader::setScaledSize()` 解码期直接降采样（列表 96×96、网格/播放页 360×360）；RAM LRU 硬上限 8 MB；同专辑共用 1 份 `cover_hash` 磁盘缩略图缓存（`%LOCALAPPDATA%/Virela/cache/covers`） |
 | SQLite3 + 虚拟化列表模型 | ~3–6 MB | `PRAGMA cache_size=-4000`（4 MB 封顶）、`PRAGMA mmap_size=0`；`ListView` 开启 `reuseItems: true` 与 `cacheBuffer: 240`；分页窗口加载应对数万首曲库 |
 | DSP / EQ / FFT 频谱 | < 1 MB | 全静态成员数组，零动态分配；自定义 C++ `QSGGeometryNode` 单次 Draw Call 绘制 48 柱频谱，零 QML Delegate 对象；窗口最小化或暂停时自动挂起 FFT 与动画时钟 |
 | Windows 11 磨砂与系统集成 | < 2 MB | 复用 DWM 原生 Mica/Acrylic（零离屏 FBO 模糊缓冲）；沉浸歌词页、EQ 面板、设置页、迷你窗全部使用 `Loader` 延迟加载并在关闭时销毁（`active: false`） |
@@ -144,7 +144,7 @@ sequenceDiagram
 
 ## Proposed Changes
 
-工程根目录位于 `/home/antigravity/sonora`，按模块清晰解耦，并按 **Phase 1 → Phase 2 → Phase 3** 渐进落地。
+工程根目录位于 `/home/antigravity/virela`，按模块清晰解耦，并按 **Phase 1 → Phase 2 → Phase 3** 渐进落地。
 
 ---
 
@@ -160,7 +160,7 @@ sequenceDiagram
 - 顶层 CMake 配置使用 Qt 6.9 现代范式与 C++20：
 ```cmake
 cmake_minimum_required(VERSION 3.28)
-project(Sonora VERSION 0.1.0 LANGUAGES C CXX)
+project(Virela VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -255,8 +255,8 @@ qt_standard_project_setup(
 #### [NEW] [qml/components/PlaybackBar.qml](../qml/components/PlaybackBar.qml)
 #### [NEW] [qml/components/QueueDrawer.qml](../qml/components/QueueDrawer.qml)
 #### [NEW] [qml/components/FormatBadge.qml](../qml/components/FormatBadge.qml)
-#### [NEW] [translations/sonora_zh_CN.ts](../translations/sonora_zh_CN.ts)
-#### [NEW] [translations/sonora_en_US.ts](../translations/sonora_en_US.ts)
+#### [NEW] [translations/virela_zh_CN.ts](../translations/virela_zh_CN.ts)
+#### [NEW] [translations/virela_en_US.ts](../translations/virela_en_US.ts)
 
 - **视觉语言（Apple Music 现代极简磨砂风）**：
   - 字体层级：Windows 首选 `Segoe UI Variable` + `Microsoft YaHei UI`，严格字号/字重阶梯与 1 px 半透明发丝描边。
@@ -292,7 +292,7 @@ qt_standard_project_setup(
 - **`CoverArtProvider`**（`QQuickAsyncImageProvider`）：
   - URI 规范：`image://cover/<cover_hash>?size=96` 或 `size=360`。
   - 封面查找优先级：音频内嵌 `AV_DISPOSITION_ATTACHED_PIC` → 同目录 `cover/folder/front/album.(jpg|png|webp)` → 同名图片文件。
-  - 两级缓存：内存 LRU 严格封顶 **8 MB** + 磁盘 `%LOCALAPPDATA%/Sonora/cache/covers/` 缩略图缓存，滚动上千张专辑不爆内存、不卡顿。
+  - 两级缓存：内存 LRU 严格封顶 **8 MB** + 磁盘 `%LOCALAPPDATA%/Virela/cache/covers/` 缩略图缓存，滚动上千张专辑不爆内存、不卡顿。
 
 #### [NEW] [src/lyrics/LyricsParser.h](../src/lyrics/LyricsParser.h)
 #### [NEW] [src/lyrics/LyricsParser.cpp](../src/lyrics/LyricsParser.cpp)
@@ -388,7 +388,7 @@ ctest --preset linux-dev-test --output-on-failure
 
 # 3. QML 静态检查与无头运行时烟雾测试
 qmllint qml/**/*.qml
-QT_QPA_PLATFORM=offscreen ./build/linux-dev-test/sonora --smoke-test-exit
+QT_QPA_PLATFORM=offscreen ./build/linux-dev-test/virela --smoke-test-exit
 ```
 
 各阶段单元测试覆盖清单（`tests/`）：
@@ -398,7 +398,7 @@ QT_QPA_PLATFORM=offscreen ./build/linux-dev-test/sonora --smoke-test-exit
 
 ### Manual Verification（Windows 10/11 本机验收清单）
 
-在 Windows 10/11 执行 `.\scripts\build_windows.ps1` 构建并启动 `Sonora.exe` 后，逐项验证：
+在 Windows 10/11 执行 `.\scripts\build_windows.ps1` 构建并启动 `Virela.exe` 后，逐项验证：
 1. **视觉与材质**：Windows 11 下主窗口正确透出原生 Mica/Acrylic 磨砂且 Aero Snap 拖拽分屏/圆角正常；切换不同专辑封面时背景氛围色平滑过渡；切换深/浅主题与中/英文界面即时生效无闪烁。
 2. **内存占用实测**：导入 1,000+ 首本地音乐，在 Windows 任务管理器 / Process Explorer 查看 `Private Working Set`——主界面连续播放 FLAC/MP3 时应稳定处于 **40–80 MB**，快速滚动专辑网格与开关歌词/EQ 面板后内存及时回落无持续增长。
 3. **音频发烧特性**：切换 WASAPI 独占模式确认系统其他提示音静音且外接 DAC / 硬件采样率随 44.1 kHz / 96 kHz / 192 kHz 曲目自动切换；播放整轨 FLAC + `.cue` 现场专辑确认曲目交界处零停顿；验证 DSD (`.dsf`) 解码流畅无爆音；拖动 10 段 EQ 与 ReplayGain 即时可闻且无杂音。

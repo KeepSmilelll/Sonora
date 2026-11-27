@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import Sonora.UI
+import Virela.UI
 
 GlassPanel {
     id: root
@@ -43,7 +43,7 @@ GlassPanel {
                 font.pixelSize: 11
             }
 
-            SonoraButton {
+            VirelaButton {
                 visible: root.controller.queueCount > 0
                 compact: true
                 text: qsTr("Clear")

@@ -7,7 +7,7 @@
 #include <QRegularExpression>
 #include <QUrl>
 
-namespace sonora {
+namespace virela {
 
 QVector<M3uEntry> M3uPlaylistIO::loadFile(const QString& playlistPath) {
     QFile f(playlistPath);
@@ -99,4 +99,4 @@ bool M3uPlaylistIO::saveFile(const QString& playlistPath,
     return f.write(out) == out.size();
 }
 
-} // namespace sonora
+} // namespace virela

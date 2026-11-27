@@ -1,0 +1,6 @@
+#ifndef VIRELA_RESOURCE_IDS_H
+#define VIRELA_RESOURCE_IDS_H
+
+#define IDI_VIRELA_APP 101
+
+#endif

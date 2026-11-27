@@ -14,7 +14,7 @@
 #include <iconv.h>
 #endif
 
-namespace sonora {
+namespace virela {
 
 namespace {
 
@@ -285,4 +285,4 @@ QString TextEncodingHelper::repairMetadataString(const QString& input) {
     return input;
 }
 
-} // namespace sonora
+} // namespace virela

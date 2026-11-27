@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 import QtQuick.Effects
-import Sonora.UI
+import Virela.UI
 
 // Now-playing artwork and synchronized lyrics.
 GlassPanel {
@@ -75,7 +75,7 @@ GlassPanel {
                 visible: root.lyricsCtrl.isSynced
                 spacing: 6
 
-                SonoraButton {
+                VirelaButton {
                     compact: true
                     text: "-0.25s"
                     onClicked: root.lyricsCtrl.adjustOffsetMs(-250)
@@ -89,7 +89,7 @@ GlassPanel {
                     font.features: ({ "tnum": 1 })
                 }
 
-                SonoraButton {
+                VirelaButton {
                     compact: true
                     text: "+0.25s"
                     onClicked: root.lyricsCtrl.adjustOffsetMs(250)
@@ -101,7 +101,7 @@ GlassPanel {
                 text: root.lyricsCtrl.sourceLabel
             }
 
-            SonoraButton {
+            VirelaButton {
                 compact: true
                 flat: true
                 accentTinted: root.controller.trackIsFavorite

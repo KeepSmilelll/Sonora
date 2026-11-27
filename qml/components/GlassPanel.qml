@@ -1,5 +1,5 @@
 import QtQuick
-import Sonora.UI
+import Virela.UI
 
 // Spatial Fluid Glass container with dual-rim specular top highlight & zero-blur ambient shadow
 Item {

@@ -12,7 +12,7 @@
 #include <QMetaObject>
 #include <QSet>
 
-namespace sonora {
+namespace virela {
 
 LibraryScanner::LibraryScanner(LibraryDatabase* db, CoverArtProvider* covers, QObject* parent)
     : QObject(parent)
@@ -215,4 +215,4 @@ int LibraryScanner::runScanWork(const QStringList& folders, bool forceRefresh) {
     return indexedTracks;
 }
 
-} // namespace sonora
+} // namespace virela

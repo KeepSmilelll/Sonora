@@ -6,7 +6,7 @@
 #include <thread>
 #include <vector>
 
-using namespace sonora;
+using namespace virela;
 
 class TestRingBuffer : public QObject {
     Q_OBJECT

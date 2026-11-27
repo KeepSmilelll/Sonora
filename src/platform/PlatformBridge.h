@@ -12,7 +12,7 @@
 
 class QWindow;
 
-namespace sonora {
+namespace virela {
 
 class PlatformBridge : public QObject {
     Q_OBJECT
@@ -83,4 +83,4 @@ private:
     bool quitting_ = false;
 };
 
-} // namespace sonora
+} // namespace virela

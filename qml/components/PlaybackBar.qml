@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Effects
-import Sonora.UI
+import Virela.UI
 
 GlassPanel {
     id: root
@@ -36,7 +36,7 @@ GlassPanel {
     function predictedCoverRectInWindow(winWidth, winHeight, targetDockWidth, isCompact) {
         const dockX = (winWidth - targetDockWidth) * 0.5
         const dockY = winHeight - DesignTokens.dockMarginBottom - DesignTokens.dockHeight
-        const marginL = isCompact ? 12 : 16
+        const marginL = (isCompact ? 12 : 16) + 3
         return {
             x: Math.round(dockX + marginL),
             y: Math.round(dockY + (DesignTokens.dockHeight - 46) * 0.5),
@@ -125,11 +125,12 @@ GlassPanel {
         RowLayout {
             id: trackIdentityBox
             Layout.fillWidth: false
+            Layout.fillHeight: true
             Layout.preferredWidth: root.showTrackIdentity ? (root.compact ? 190 : 254) : 0
             Layout.maximumWidth: Layout.preferredWidth
             opacity: root.showTrackIdentity ? 1.0 : 0.0
             visible: Layout.preferredWidth > 2
-            clip: true
+            clip: !root.showTrackIdentity || width < (root.compact ? 186 : 250)
             spacing: 10
 
             Behavior on Layout.preferredWidth {
@@ -141,6 +142,7 @@ GlassPanel {
 
             Item {
                 id: coverButton
+                Layout.leftMargin: 3
                 implicitWidth: 46
                 implicitHeight: 46
                 opacity: root.hideCoverForHero ? 0.0 : 1.0
@@ -469,7 +471,7 @@ GlassPanel {
             }
         }
 
-        // Right: Lyrics, EQ, Info, Queue, Mute + SonoraSlider Volume
+        // Right: Lyrics, EQ, Info, Queue, Mute + VirelaSlider Volume
         RowLayout {
             Layout.fillWidth: false
             Layout.preferredWidth: root.compact ? 214 : 252
@@ -512,7 +514,7 @@ GlassPanel {
                 onClicked: root.controller.muted = !root.controller.muted
             }
 
-            SonoraSlider {
+            VirelaSlider {
                 Layout.preferredWidth: root.compact ? 58 : 78
                 from: 0.0
                 to: 1.0

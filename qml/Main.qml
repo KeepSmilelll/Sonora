@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 import QtQuick.Dialogs
-import Sonora.UI
+import Virela.UI
 
 Window {
     id: win
@@ -12,7 +12,7 @@ Window {
     minimumWidth: 920
     minimumHeight: 610
     visible: false
-    title: "Sonora"
+    title: "Virela"
     flags: Qt.Window | Qt.FramelessWindowHint
     color: DesignTokens.nativeBackdropActive ? "transparent" : DesignTokens.windowBg
 
@@ -57,6 +57,16 @@ Window {
         platformBridge.setTitleBarDragEnabled(allowDrag)
     }
 
+    function dismissSearchIfOutside(wx, wy) {
+        if (titleBar.searchFocused && !titleBar.isPointInsideSearch(wx, wy)) {
+            titleBar.clearSearchFocus()
+        }
+    }
+
+    function dismissSearchFocus() {
+        titleBar.clearSearchFocus()
+    }
+
     function enterImmersive(sourceItemHint) {
         if (win.stageMode === "immersive") return
         win.previousNonImmersiveMode = win.effectiveStageMode === "collapsed" ? "collapsed" : "rail"
@@ -64,9 +74,8 @@ Window {
         const src = sourceItemHint
             || (win.effectiveStageMode === "rail" ? focusStage.currentCoverItem() : playbackDock.coverAnchorItem())
         const fromR = src ? src.width * 0.5 : 23
-        const predWs = focusStage.predictedCoverRectInWorkspace(
-            workspaceHost.width, workspaceHost.height, "immersive", win.stageRailWidth)
-        const wsOrigin = workspaceHost.mapToItem(heroLayer, 0, 0)
+        const predImm = focusStage.computeImmersiveCoverGeometry(
+            win.width, win.height, Boolean(appSettings.visualizerEnabled))
         heroLayer.startHero({
             tag: "nowplaying-cover",
             vinylMode: true,
@@ -75,12 +84,12 @@ Window {
             sourceItem: src,
             fromRadius: fromR,
             toRect: {
-                x: wsOrigin.x + predWs.x,
-                y: wsOrigin.y + predWs.y,
-                width: predWs.width,
-                height: predWs.height
+                x: predImm.x,
+                y: predImm.y,
+                width: predImm.width,
+                height: predImm.height
             },
-            toRadius: predWs.radius,
+            toRadius: predImm.radius,
             imageUrl: player.trackCoverUrl
         })
         win.stageMode = "immersive"
@@ -94,16 +103,15 @@ Window {
         let toR = 23
 
         if (targetMode === "rail") {
-            const predWs = focusStage.predictedCoverRectInWorkspace(
-                workspaceHost.width, workspaceHost.height, "rail", win.stageRailWidth)
-            const wsOrigin = workspaceHost.mapToItem(heroLayer, 0, 0)
+            const railW = Math.min(win.stageRailWidth, Math.max(DesignTokens.stageMinWidth, (win.width - 32) * 0.42))
+            const rg = focusStage.computeRailCoverGeometry(railW)
             toRect = {
-                x: wsOrigin.x + predWs.x,
-                y: wsOrigin.y + predWs.y,
-                width: predWs.width,
-                height: predWs.height
+                x: Math.round(win.width - 16 - railW + rg.x),
+                y: DesignTokens.titleBarHeight + 10 + rg.y,
+                width: rg.width,
+                height: rg.height
             }
-            toR = predWs.radius
+            toR = rg.radius
         } else {
             const targetDockW = Math.min(win.width - 32, DesignTokens.dockMaxWidth)
             toRect = playbackDock.predictedCoverRectInWindow(
@@ -215,12 +223,7 @@ Window {
         syncTitleBarDragState()
         if (inspectedTrackMap !== null) {
             cachedTrackMap = inspectedTrackMap
-            trackInfoCloseAnim.stop()
             trackInfoKeepAlive = true
-            trackInfoOpenAnim.restart()
-        } else if (trackInfoLoader.active) {
-            trackInfoOpenAnim.stop()
-            trackInfoCloseAnim.restart()
         }
     }
 
@@ -369,7 +372,7 @@ Window {
         }
     }
 
-    // Top Spatial Frameless TitleBar (always uncovered for native OS drag & caption controls)
+    // Top Spatial Frameless TitleBar (recedes smoothly when Immersive stage expands over it)
     TitleBar {
         id: titleBar
         anchors.top: parent.top
@@ -377,6 +380,9 @@ Window {
         anchors.right: parent.right
         height: DesignTokens.titleBarHeight
         z: 30
+        opacity: Math.max(0.0, 1.0 - win.animImmersive * 1.8)
+        visible: opacity > 0.01
+        enabled: win.stageMode !== "immersive"
         compact: win.compactWindow
         searchText: library.searchQuery
         isMaximized: win.visibility === Window.Maximized
@@ -564,60 +570,65 @@ Window {
                 }
             }
         }
+    }
 
-        // Right Continuous Focus Stage (Collapsed <-> Companion Rail <-> 100% Immersive)
-        FocusStage {
-            id: focusStage
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-            anchors.right: parent.right
-            z: 15
-            controller: player
-            lyricsCtrl: lyricsController
-            settingsObj: appSettings
-            stageMode: win.effectiveStageMode
-            immersiveFactor: win.animImmersive
-            activeTab: win.stageTab
-            hideCoverForHero: heroLayer.isConcealing("nowplaying-cover")
-            onActiveTabChanged: {
-                if (win.stageTab !== activeTab) win.stageTab = activeTab
-            }
+    // Continuous Focus Stage (Collapsed <-> Companion Rail <-> 100% Full-Window Immersive covering TitleBar & Dock)
+    FocusStage {
+        id: focusStage
+        anchors.top: parent.top
+        anchors.topMargin: Math.round((DesignTokens.titleBarHeight + 10) * (1.0 - win.animImmersive))
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Math.round((DesignTokens.dockHeight + DesignTokens.dockMarginBottom + 14) * (1.0 - win.animImmersive))
+        anchors.right: parent.right
+        anchors.rightMargin: Math.round(16 * (1.0 - win.animImmersive))
+        z: win.animImmersive > 0.02 ? 32 : 15
+        controller: player
+        lyricsCtrl: lyricsController
+        settingsObj: appSettings
+        stageMode: win.effectiveStageMode
+        immersiveFactor: win.animImmersive
+        activeTab: win.stageTab
+        eqOpen: win.eqOpen
+        hideCoverForHero: heroLayer.isConcealing("nowplaying-cover")
+        onActiveTabChanged: {
+            if (win.stageTab !== activeTab) win.stageTab = activeTab
+        }
 
-            width: {
-                if (win.effectiveStageMode === "immersive") return workspaceHost.width
-                if (win.effectiveStageMode === "rail") {
-                    return Math.min(win.stageRailWidth, Math.max(DesignTokens.stageMinWidth, workspaceHost.width * 0.42))
-                }
-                return 0
+        width: {
+            if (win.effectiveStageMode === "immersive") return win.width
+            if (win.effectiveStageMode === "rail") {
+                return Math.min(win.stageRailWidth, Math.max(DesignTokens.stageMinWidth, (win.width - 32) * 0.42))
             }
-            opacity: win.effectiveStageMode === "collapsed" ? 0.0 : 1.0
-            visible: width > 2
+            return 0
+        }
+        opacity: win.effectiveStageMode === "collapsed" ? 0.0 : 1.0
+        visible: width > 2
 
-            Behavior on width {
-                enabled: !focusStage.draggingResize
-                NumberAnimation { duration: DesignTokens.animStage; easing.type: Easing.OutQuint }
-            }
-            Behavior on opacity {
-                NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
-            }
+        Behavior on width {
+            enabled: !focusStage.draggingResize
+            NumberAnimation { duration: DesignTokens.animStage; easing.type: Easing.OutQuint }
+        }
+        Behavior on opacity {
+            NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+        }
 
-            onRequestImmersiveToggle: win.toggleImmersive(focusStage.currentCoverItem())
-            onRequestCollapse: win.stageMode = "collapsed"
-            onToggleFavorite: win.toggleCurrentFavorite()
-            onOpenTrackInfo: win.inspectedTrackMap = player.currentTrackMap
-            onDragResize: (deltaX) => {
-                win.stageRailWidth = Math.max(120, Math.min(workspaceHost.width * 0.72, win.stageRailWidth - deltaX))
-            }
-            onDragResizeFinished: (currentW) => {
-                if (currentW < 210) {
-                    win.stageMode = "collapsed"
-                    win.stageRailWidth = DesignTokens.stageDefaultWidth
-                } else if (currentW > Math.min(540, workspaceHost.width * 0.56)) {
-                    win.stageRailWidth = DesignTokens.stageDefaultWidth
-                    win.enterImmersive(focusStage.currentCoverItem())
-                } else {
-                    win.stageRailWidth = Math.max(DesignTokens.stageMinWidth, Math.min(DesignTokens.stageMaxWidth, currentW))
-                }
+        onRequestImmersiveToggle: win.toggleImmersive(focusStage.currentCoverItem())
+        onRequestCollapse: win.stageMode = "collapsed"
+        onToggleFavorite: win.toggleCurrentFavorite()
+        onToggleEq: win.eqOpen = !win.eqOpen
+        onOpenTrackInfo: win.inspectedTrackMap = player.currentTrackMap
+        onDragResize: (deltaX) => {
+            win.stageRailWidth = Math.max(120, Math.min(workspaceHost.width * 0.72, win.stageRailWidth - deltaX))
+        }
+        onDragResizeFinished: (currentW) => {
+            if (currentW < 210) {
+                win.stageMode = "collapsed"
+                win.stageRailWidth = DesignTokens.stageDefaultWidth
+            } else if (currentW > Math.min(540, workspaceHost.width * 0.56)) {
+                win.stageRailWidth = DesignTokens.stageDefaultWidth
+                win.enterImmersive(focusStage.currentCoverItem())
+            } else {
+                win.stageRailWidth = Math.max(DesignTokens.stageMinWidth, Math.min(DesignTokens.stageMaxWidth, currentW))
             }
         }
     }
@@ -625,25 +636,28 @@ Window {
     // Click-outside catcher for the floating EQ drawer
     MouseArea {
         visible: win.eqOpen
-        anchors.top: titleBar.bottom
-        anchors.bottom: playbackDock.top
+        anchors.top: win.stageMode === "immersive" ? parent.top : titleBar.bottom
+        anchors.bottom: win.stageMode === "immersive" ? parent.bottom : playbackDock.top
         anchors.left: parent.left
         anchors.right: parent.right
-        z: 18
+        z: 33
         onClicked: win.eqOpen = false
     }
 
-    // Lazy-loaded Floating 10-band EQ & DSP Drawer (springs up above floating dock)
+    // Lazy-loaded Floating 10-band EQ & DSP Drawer
     Item {
         id: eqHost
         visible: eqLoader.active
-        anchors.right: playbackDock.right
-        anchors.bottom: playbackDock.top
-        anchors.bottomMargin: 12
+        x: win.stageMode === "immersive"
+            ? Math.max(20, Math.min(parent.width - width - 20, Math.round((focusStage.immersiveLeftColWidth - width) * 0.5) + 16))
+            : Math.round(playbackDock.x + playbackDock.width - width)
+        y: win.stageMode === "immersive"
+            ? Math.max(56, parent.height - height - 24)
+            : (playbackDock.y - height - 12)
         width: eqLoader.item ? eqLoader.item.implicitWidth : 548
         height: eqLoader.item ? eqLoader.item.implicitHeight : 344
-        z: 20
-        transformOrigin: Item.BottomRight
+        z: 34
+        transformOrigin: win.stageMode === "immersive" ? Item.BottomLeft : Item.BottomRight
         transform: Translate { id: eqShift; y: 0 }
 
         ParallelAnimation {
@@ -675,7 +689,7 @@ Window {
         }
     }
 
-    // Centered Floating Morphing Capsule Playback Dock
+    // Centered Floating Morphing Capsule Playback Dock (recedes in Immersive mode where FocusStage embeds its own console)
     PlaybackBar {
         id: playbackDock
         anchors.horizontalCenter: parent.horizontalCenter
@@ -684,7 +698,11 @@ Window {
         width: Math.min(parent.width - 32,
                         win.stageMode === "immersive" ? DesignTokens.dockImmersiveMaxWidth : DesignTokens.dockMaxWidth)
         height: DesignTokens.dockHeight
-        z: 25
+        z: 35
+        opacity: Math.max(0.0, 1.0 - win.animImmersive * 1.6)
+        visible: opacity > 0.01
+        enabled: win.stageMode !== "immersive"
+        transform: Translate { y: Math.round(win.animImmersive * 32) }
 
         Behavior on width {
             NumberAnimation { duration: 300; easing.type: Easing.OutQuint }
@@ -724,30 +742,19 @@ Window {
         id: trackInfoHost
         visible: trackInfoLoader.active
         anchors.fill: parent
-        z: 40
-
-        ParallelAnimation {
-            id: trackInfoOpenAnim
-            NumberAnimation { target: trackInfoHost; property: "opacity"; from: 0.0; to: 1.0; duration: 190; easing.type: Easing.OutCubic }
-            NumberAnimation { target: trackInfoLoader; property: "scale"; from: 0.94; to: 1.0; duration: 240; easing.type: Easing.OutBack; easing.overshoot: 1.06 }
-        }
-
-        ParallelAnimation {
-            id: trackInfoCloseAnim
-            NumberAnimation { target: trackInfoHost; property: "opacity"; to: 0.0; duration: 150; easing.type: Easing.InQuad }
-            NumberAnimation { target: trackInfoLoader; property: "scale"; to: 0.96; duration: 150; easing.type: Easing.InQuad }
-            onFinished: {
-                if (win.inspectedTrackMap === null) win.trackInfoKeepAlive = false
-            }
-        }
+        z: 45
 
         Loader {
             id: trackInfoLoader
             anchors.fill: parent
             active: win.inspectedTrackMap !== null || win.trackInfoKeepAlive
             sourceComponent: TrackInfoDialog {
+                open: win.inspectedTrackMap !== null
                 trackMap: win.inspectedTrackMap || win.cachedTrackMap
                 onCloseRequested: win.inspectedTrackMap = null
+                onClosed: {
+                    if (win.inspectedTrackMap === null) win.trackInfoKeepAlive = false
+                }
             }
         }
     }
@@ -757,21 +764,36 @@ Window {
         id: createModalHost
         visible: createPlaylistLoader.active
         anchors.fill: parent
-        z: 40
+        z: 45
 
-        ParallelAnimation {
+        property real modalProgress: 0.0
+
+        NumberAnimation {
             id: createOpenAnim
-            NumberAnimation { target: createModalHost; property: "opacity"; from: 0.0; to: 1.0; duration: 180; easing.type: Easing.OutCubic }
-            NumberAnimation { target: createPlaylistLoader; property: "scale"; from: 0.93; to: 1.0; duration: 240; easing.type: Easing.OutBack; easing.overshoot: 1.06 }
+            target: createModalHost
+            property: "modalProgress"
+            to: 1.0
+            duration: 210
+            easing.type: Easing.OutCubic
         }
 
-        ParallelAnimation {
+        NumberAnimation {
             id: createCloseAnim
-            NumberAnimation { target: createModalHost; property: "opacity"; to: 0.0; duration: 140; easing.type: Easing.InQuad }
-            NumberAnimation { target: createPlaylistLoader; property: "scale"; to: 0.95; duration: 140; easing.type: Easing.InQuad }
+            target: createModalHost
+            property: "modalProgress"
+            to: 0.0
+            duration: 150
+            easing.type: Easing.InQuad
             onFinished: {
                 if (!win.createPlaylistOpen) win.createModalKeepAlive = false
             }
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            color: DesignTokens.surfaceScrim
+            opacity: createModalHost.modalProgress
+            MouseArea { anchors.fill: parent; onClicked: win.createPlaylistOpen = false }
         }
 
         Loader {
@@ -779,12 +801,6 @@ Window {
             anchors.fill: parent
             active: win.createPlaylistOpen || win.createModalKeepAlive
             sourceComponent: Item {
-                Rectangle {
-                    anchors.fill: parent
-                    color: DesignTokens.surfaceScrim
-                    MouseArea { anchors.fill: parent; onClicked: win.createPlaylistOpen = false }
-                }
-
                 GlassPanel {
                     anchors.centerIn: parent
                     width: 372
@@ -792,6 +808,9 @@ Window {
                     radius: DesignTokens.radiusXl
                     elevated: true
                     shadowEnabled: true
+                    opacity: createModalHost.modalProgress
+                    scale: 0.95 + 0.05 * createModalHost.modalProgress
+                    transform: Translate { y: (1.0 - createModalHost.modalProgress) * 12 }
 
                     MouseArea { anchors.fill: parent }
 
@@ -857,13 +876,13 @@ Window {
                             spacing: 8
                             Item { Layout.fillWidth: true }
 
-                            SonoraButton {
+                            VirelaButton {
                                 compact: true
                                 text: qsTr("Cancel")
                                 onClicked: win.createPlaylistOpen = false
                             }
 
-                            SonoraButton {
+                            VirelaButton {
                                 id: createConfirmBtn
                                 compact: true
                                 primary: true
@@ -896,7 +915,7 @@ Window {
     // Global drag & drop overlay
     DropArea {
         anchors.fill: parent
-        z: 45
+        z: 55
         onDropped: (drop) => {
             if (drop.hasUrls) {
                 player.openUrls(drop.urls, false)
@@ -943,10 +962,10 @@ Window {
         readonly property bool shown: player.toastMessage.length > 0
         visible: opacity > 0.01
         opacity: shown ? 1.0 : 0.0
-        z: 35
+        z: 38
         anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottom: playbackDock.top
-        anchors.bottomMargin: 14
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: win.stageMode === "immersive" ? 22 : (DesignTokens.dockHeight + DesignTokens.dockMarginBottom + 14)
         height: 38
         width: Math.min(parent.width - 64, toastText.implicitWidth + 36)
         radius: 19

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Packages cross-compiled Sonora.exe with all Qt 6.9.1, FFmpeg 9.0.2, and LLVM-MinGW runtime dependencies."""
+"""Packages cross-compiled Virela.exe with all Qt 6.9.1, FFmpeg 9.0.2, and LLVM-MinGW runtime dependencies."""
 import os
 import pathlib
 import re
@@ -7,9 +7,9 @@ import shutil
 import subprocess
 import sys
 
-ROOT = pathlib.Path("/home/antigravity/sonora")
-BUILD_EXE = ROOT / "build/win64-cross-release/Sonora.exe"
-OUT_DIR = ROOT / "release/Sonora-win64"
+ROOT = pathlib.Path("/home/antigravity/virela")
+BUILD_EXE = ROOT / "build/win64-cross-release/Virela.exe"
+OUT_DIR = ROOT / "release/Virela-win64"
 
 QT_WIN = pathlib.Path("/home/antigravity/deps/qt-win/6.9.1/llvm-mingw_64")
 FFMPEG_WIN = pathlib.Path("/home/antigravity/deps/ffmpeg-9.0.2-win64")
@@ -100,8 +100,8 @@ def main():
         shutil.rmtree(OUT_DIR)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 1. Copy and strip Sonora.exe
-    dst_exe = OUT_DIR / "Sonora.exe"
+    # 1. Copy and strip Virela.exe
+    dst_exe = OUT_DIR / "Virela.exe"
     shutil.copy2(BUILD_EXE, dst_exe)
     subprocess.run([STRIP, "--strip-unneeded", str(dst_exe)], check=False)
 
@@ -138,7 +138,7 @@ def main():
     # 5. Write qt.conf for clean self-contained plugin & QML lookup
     (OUT_DIR / "qt.conf").write_text("[Paths]\nPlugins = .\nQmlImports = qml\n", encoding="utf-8")
 
-    # 6. Recursive PE import closure across Sonora.exe + every copied plugin/QML DLL
+    # 6. Recursive PE import closure across Virela.exe + every copied plugin/QML DLL
     scanned: set[pathlib.Path] = set()
     missing: set[str] = set()
     queue: list[pathlib.Path] = [dst_exe] + list(OUT_DIR.rglob("*.dll"))

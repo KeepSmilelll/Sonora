@@ -8,7 +8,7 @@
 #include <QUrl>
 #include <QVariantList>
 
-namespace sonora {
+namespace virela {
 
 class AppSettings;
 class CoverArtProvider;
@@ -238,4 +238,4 @@ private:
     int totalTrackCount_ = 0;
 };
 
-} // namespace sonora
+} // namespace virela

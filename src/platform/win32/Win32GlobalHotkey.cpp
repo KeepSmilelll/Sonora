@@ -10,7 +10,7 @@
 #endif
 #include <windows.h>
 
-namespace sonora {
+namespace virela {
 
 namespace {
 constexpr int kHkPlayPause = 0x5101;
@@ -101,6 +101,6 @@ bool Win32GlobalHotkey::nativeEventFilter(const QByteArray& eventType, void* mes
     return false;
 }
 
-} // namespace sonora
+} // namespace virela
 
 #endif // _WIN32

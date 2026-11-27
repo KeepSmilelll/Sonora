@@ -1,5 +1,5 @@
 import QtQuick
-import Sonora.UI
+import Virela.UI
 
 Rectangle {
     id: root

@@ -14,7 +14,7 @@
 #include <cmath>
 #include <vector>
 
-using namespace sonora;
+using namespace virela;
 
 namespace {
 
@@ -420,6 +420,79 @@ private slots:
         ctrl.updatePositionMs(2000);
         QCOMPARE(ctrl.activeLineIndex(), 0);
         QVERIFY(std::abs(ctrl.activeLineProgress() - 0.5) < 0.01);
+    }
+
+    void lyricsParserWordTimedYrcQrcKrcAndTailCap() {
+        // 1. NetEase YRC with JSON metadata header
+        const QString yrcRaw = QStringLiteral(
+            "{\"t\":0,\"c\":[{\"tx\":\"Artist\"}]}\n"
+            "[1000,2200](1000,400,0)你(1400,800,0)好\n");
+        const ParsedLyrics yrc = LyricsParser::parse(yrcRaw, QStringLiteral("YRC"));
+        QVERIFY(yrc.synced);
+        QCOMPARE(yrc.lines.size(), 1);
+        QCOMPARE(yrc.lines[0].timestampMs, 1000);
+        QCOMPARE(yrc.lines[0].durationMs, 2200);
+        QCOMPARE(yrc.lines[0].text, QStringLiteral("你好"));
+        QCOMPARE(yrc.lines[0].words.size(), 2);
+        QCOMPARE(yrc.lines[0].words[0].timestampMs, 1000);
+        QCOMPARE(yrc.lines[0].words[0].endTimestampMs, 1400);
+        QCOMPARE(yrc.lines[0].words[1].timestampMs, 1400);
+        QCOMPARE(yrc.lines[0].words[1].endTimestampMs, 2200);
+
+        // 2. QQ QRC: text(start,dur)
+        const QString qrcRaw = QStringLiteral("[2000,1800]星(2000,600)光(2600,900)\n");
+        const ParsedLyrics qrc = LyricsParser::parse(qrcRaw, QStringLiteral("QRC"));
+        QVERIFY(qrc.synced);
+        QCOMPARE(qrc.lines.size(), 1);
+        QCOMPARE(qrc.lines[0].text, QStringLiteral("星光"));
+        QCOMPARE(qrc.lines[0].words.size(), 2);
+        QCOMPARE(qrc.lines[0].words[0].timestampMs, 2000);
+        QCOMPARE(qrc.lines[0].words[0].endTimestampMs, 2600);
+        QCOMPARE(qrc.lines[0].words[1].timestampMs, 2600);
+        QCOMPARE(qrc.lines[0].words[1].endTimestampMs, 3500);
+
+        // 3. KRC-style: [lineStart,lineDur]<offset,dur,0>text
+        const QString krcRaw = QStringLiteral("[3000,1500]<0,500,0>夜<500,700,0>空\n");
+        const ParsedLyrics krc = LyricsParser::parse(krcRaw, QStringLiteral("KRC"));
+        QVERIFY(krc.synced);
+        QCOMPARE(krc.lines.size(), 1);
+        QCOMPARE(krc.lines[0].text, QStringLiteral("夜空"));
+        QCOMPARE(krc.lines[0].words.size(), 2);
+        QCOMPARE(krc.lines[0].words[0].timestampMs, 3000);
+        QCOMPARE(krc.lines[0].words[0].endTimestampMs, 3500);
+        QCOMPARE(krc.lines[0].words[1].timestampMs, 3500);
+        QCOMPARE(krc.lines[0].words[1].endTimestampMs, 4200);
+
+        // 4. Enhanced LRC trailing closing tag (no empty ghost token)
+        const QString elrcRaw = QStringLiteral("[00:01.00]<00:01.00>A<00:01.40>B<00:01.90>\n");
+        const ParsedLyrics elrc = LyricsParser::parse(elrcRaw, QStringLiteral("LRC"));
+        QCOMPARE(elrc.lines.size(), 1);
+        QCOMPARE(elrc.lines[0].text, QStringLiteral("AB"));
+        QCOMPARE(elrc.lines[0].words.size(), 2);
+        QCOMPARE(elrc.lines[0].words[1].endTimestampMs, 1900);
+
+        // 5. Final-word interlude tail cap in LyricsController (20s gap capped cleanly)
+        LyricsController ctrl;
+        ctrl.loadForTrack({}, QStringLiteral("[00:01.00]<00:01.00>Hi\n[00:20.00]<00:20.00>Next\n"));
+        const QVariantList tokens = ctrl.data(ctrl.index(0), LyricsController::WordTokensRole).toList();
+        QCOMPARE(tokens.size(), 1);
+        const qint64 hiEnd = tokens[0].toMap().value(QStringLiteral("endMs")).toLongLong();
+        QVERIFY2(hiEnd > 1500 && hiEnd <= 3000,
+                 qPrintable(QStringLiteral("Expected capped tail end <= 3000ms, got %1").arg(hiEnd)));
+
+        // 6. Sidecar .yrc auto-discovery alongside audio track
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString songPath = dir.filePath(QStringLiteral("track.flac"));
+        QFile yrcFile(dir.filePath(QStringLiteral("track.yrc")));
+        QVERIFY(yrcFile.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        yrcFile.write(yrcRaw.toUtf8());
+        yrcFile.close();
+
+        const ParsedLyrics loaded = LyricsParser::loadForTrack(songPath);
+        QCOMPARE(loaded.sourceLabel, QStringLiteral("YRC"));
+        QCOMPARE(loaded.lines.size(), 1);
+        QCOMPARE(loaded.lines[0].words.size(), 2);
     }
 };
 

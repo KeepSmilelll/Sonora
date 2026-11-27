@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import Sonora.UI
+import Virela.UI
 
 Rectangle {
     id: root
@@ -26,8 +26,22 @@ Rectangle {
     implicitHeight: DesignTokens.titleBarHeight
     color: "transparent"
 
+    readonly property bool searchFocused: searchInput.activeFocus
+
+    function clearSearchFocus() {
+        if (searchInput.activeFocus) searchInput.focus = false
+    }
+
+    function isPointInsideSearch(wx, wy) {
+        if (!searchPill.visible || searchPill.width <= 0 || searchPill.height <= 0) return false
+        const p = searchPill.mapToItem(null, 0, 0)
+        return wx >= p.x && wx <= p.x + searchPill.width
+            && wy >= p.y && wy <= p.y + searchPill.height
+    }
+
     function syncInteractiveRegions() {
         if (!root.Window.window || typeof platformBridge === "undefined" || !platformBridge) return
+        if (root.immersiveFactor >= 0.5) return
         const rects = []
         if (railToggleBtn.visible && railToggleBtn.opacity > 0.3 && railToggleBtn.width > 0 && railToggleBtn.height > 0) {
             const rt = railToggleBtn.mapToItem(null, 0, 0)
@@ -47,17 +61,10 @@ Rectangle {
     onWidthChanged: syncInteractiveRegions()
     onHeightChanged: syncInteractiveRegions()
     onRailExpandedChanged: Qt.callLater(syncInteractiveRegions)
-    onImmersiveFactorChanged: Qt.callLater(syncInteractiveRegions)
-    Component.onCompleted: Qt.callLater(syncInteractiveRegions)
-
-    Rectangle {
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: 1
-        color: DesignTokens.borderSubtle
-        opacity: Math.max(0.0, 1.0 - root.immersiveFactor)
+    onImmersiveFactorChanged: {
+        if (immersiveFactor < 0.5) Qt.callLater(syncInteractiveRegions)
     }
+    Component.onCompleted: Qt.callLater(syncInteractiveRegions)
 
     // Cross-platform fallback for non-Win32 platforms (on Windows, Win32WindowHelper maps
     // empty titlebar space directly to HTCAPTION for native OS dragging & Aero Snap).
@@ -134,11 +141,11 @@ Rectangle {
         anchors.rightMargin: 10
         spacing: 12
 
-        // Spatial brand mark + Rail Toggle
+        // Left Rail Toggle (symmetric width keeps search capsule optically centered)
         RowLayout {
             spacing: 9
             Layout.fillWidth: false
-            Layout.preferredWidth: root.compact ? 176 : 210
+            Layout.preferredWidth: root.compact ? 156 : 192
 
             BarActionBtn {
                 id: railToggleBtn
@@ -150,36 +157,6 @@ Rectangle {
                 onYChanged: root.syncInteractiveRegions()
                 onWidthChanged: root.syncInteractiveRegions()
                 onClicked: root.toggleRailExpanded()
-            }
-
-            Rectangle {
-                implicitWidth: 26
-                implicitHeight: 26
-                radius: DesignTokens.radiusSm
-                color: DesignTokens.isDark ? "#2d1520" : "#f9d4df"
-                border.width: 1
-                border.color: DesignTokens.isDark
-                    ? Qt.rgba(0.98, 0.36, 0.50, 0.34)
-                    : Qt.rgba(0.83, 0.09, 0.26, 0.14)
-                Behavior on color { ColorAnimation { duration: DesignTokens.animFast } }
-                Behavior on border.color { ColorAnimation { duration: DesignTokens.animFast } }
-
-                IconGlyph {
-                    anchors.centerIn: parent
-                    name: "wave"
-                    size: 17
-                    color: DesignTokens.isDark ? "#ff6382" : "#d41842"
-                    Behavior on color { ColorAnimation { duration: DesignTokens.animFast } }
-                }
-            }
-
-            Text {
-                text: "Sonora"
-                color: DesignTokens.textPrimary
-                font.family: DesignTokens.fontFamily
-                font.pixelSize: 18
-                font.weight: Font.Bold
-                font.letterSpacing: 0.25
             }
 
             Item { Layout.fillWidth: true }
@@ -266,6 +243,7 @@ Rectangle {
                         clip: true
                         verticalAlignment: TextInput.AlignVCenter
                         onTextEdited: root.searchEdited(text)
+                        Keys.onEscapePressed: searchInput.focus = false
 
                         Text {
                             anchors.fill: parent
@@ -327,12 +305,6 @@ Rectangle {
             onXChanged: root.syncInteractiveRegions()
             onYChanged: root.syncInteractiveRegions()
             onWidthChanged: root.syncInteractiveRegions()
-
-            BarActionBtn {
-                iconName: "plus"
-                iconSize: 15
-                onClicked: root.openFilesRequested()
-            }
 
             BarActionBtn {
                 id: themeBtn

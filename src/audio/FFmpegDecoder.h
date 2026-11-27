@@ -14,7 +14,7 @@ struct AVFrame;
 struct AVPacket;
 struct SwrContext;
 
-namespace sonora {
+namespace virela {
 
 class FFmpegDecoder {
 public:
@@ -95,4 +95,4 @@ private:
     std::vector<float> convertScratch_;
 };
 
-} // namespace sonora
+} // namespace virela

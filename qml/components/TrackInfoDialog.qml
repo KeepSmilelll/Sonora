@@ -1,19 +1,62 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Effects
-import Sonora.UI
+import Virela.UI
 
 Item {
     id: root
 
     property var trackMap: ({})
+    property bool open: true
+    property real animProgress: 0.0
     signal closeRequested()
+    signal closed()
 
     anchors.fill: parent
+
+    Component.onCompleted: {
+        if (root.open) {
+            Qt.callLater(function() {
+                if (root.open) openAnim.restart()
+            })
+        }
+    }
+
+    onOpenChanged: {
+        if (open) {
+            closeAnim.stop()
+            openAnim.restart()
+        } else {
+            openAnim.stop()
+            closeAnim.restart()
+        }
+    }
+
+    NumberAnimation {
+        id: openAnim
+        target: root
+        property: "animProgress"
+        to: 1.0
+        duration: 210
+        easing.type: Easing.OutCubic
+    }
+
+    NumberAnimation {
+        id: closeAnim
+        target: root
+        property: "animProgress"
+        to: 0.0
+        duration: 150
+        easing.type: Easing.InQuad
+        onFinished: {
+            if (!root.open) root.closed()
+        }
+    }
 
     Rectangle {
         anchors.fill: parent
         color: DesignTokens.surfaceScrim
+        opacity: root.animProgress
         MouseArea {
             anchors.fill: parent
             onClicked: root.closeRequested()
@@ -21,6 +64,7 @@ Item {
     }
 
     GlassPanel {
+        id: dialogCard
         anchors.centerIn: parent
         width: Math.min(parent.width - 48, 512)
         height: Math.min(parent.height - 64, infoCol.implicitHeight + 44)
@@ -30,6 +74,9 @@ Item {
         elevated: true
         shadowEnabled: true
         specularEnabled: true
+        opacity: root.animProgress
+        scale: 0.95 + 0.05 * root.animProgress
+        transform: Translate { y: (1.0 - root.animProgress) * 12 }
 
         MouseArea { anchors.fill: parent }
 

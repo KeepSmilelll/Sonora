@@ -14,7 +14,7 @@
 #include <shellapi.h>
 #include <cmath>
 
-namespace sonora {
+namespace virela {
 
 namespace {
 
@@ -210,6 +210,12 @@ bool Win32WindowHelper::nativeEventFilter(const QByteArray& eventType, void* mes
         }
         break;
     }
+    case WM_NCLBUTTONDOWN: {
+        if (msg->wParam == HTCAPTION && window_) {
+            QMetaObject::invokeMethod(window_, "dismissSearchFocus", Qt::QueuedConnection);
+        }
+        break;
+    }
     case WM_NCLBUTTONDBLCLK: {
         if (msg->wParam == HTCAPTION) {
             ShowWindow(msg->hwnd, IsZoomed(msg->hwnd) ? SW_RESTORE : SW_MAXIMIZE);
@@ -278,6 +284,6 @@ bool Win32WindowHelper::nativeEventFilter(const QByteArray& eventType, void* mes
     return false;
 }
 
-} // namespace sonora
+} // namespace virela
 
 #endif // _WIN32

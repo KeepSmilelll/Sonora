@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import Sonora.UI
+import Virela.UI
 
 // 10-band Parametric Equalizer + Real-time GPU Curve + Quick Audio DSP Spatial Drawer
 GlassPanel {
@@ -55,14 +55,14 @@ GlassPanel {
                 font.weight: Font.Bold
             }
 
-            SonoraSwitch {
+            VirelaSwitch {
                 checked: root.settingsObj.eqEnabled
                 onToggled: (state) => root.settingsObj.eqEnabled = state
             }
 
             Item { Layout.fillWidth: true }
 
-            SonoraComboBox {
+            VirelaComboBox {
                 id: presetBox
                 Layout.preferredWidth: 148
                 model: root.controller.eqPresets
@@ -184,7 +184,7 @@ GlassPanel {
                         font.features: ({ "tnum": 1 })
                     }
 
-                    SonoraSlider {
+                    VirelaSlider {
                         Layout.alignment: Qt.AlignHCenter
                         Layout.fillHeight: true
                         orientation: Qt.Vertical
@@ -226,7 +226,7 @@ GlassPanel {
                 font.features: ({ "tnum": 1 })
             }
 
-            SonoraSlider {
+            VirelaSlider {
                 Layout.preferredWidth: 136
                 bipolar: true
                 from: -12.0
@@ -239,7 +239,7 @@ GlassPanel {
 
             Item { Layout.fillWidth: true }
 
-            SonoraButton {
+            VirelaButton {
                 compact: true
                 text: qsTr("Reset Flat")
                 onClicked: {

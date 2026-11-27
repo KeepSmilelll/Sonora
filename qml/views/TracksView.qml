@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import Sonora.UI
+import Virela.UI
 
 Item {
     id: root
@@ -164,15 +164,15 @@ Item {
                 Item { Layout.fillWidth: true }
             }
 
-            SonoraButton {
-                visible: root.lib.tracksModel.count > 0
+            VirelaButton {
+                visible: root.sectionKey !== "tracks" && root.lib.tracksModel.count > 0
                 compact: true
                 iconName: "play"
                 text: qsTr("Play All")
                 onClicked: root.lib.playFromTracksModel(0)
             }
 
-            SonoraButton {
+            VirelaButton {
                 visible: root.sectionKey === "playlist" && root.activePlaylistId >= 0
                 compact: true
                 iconName: "export"
@@ -622,14 +622,14 @@ Item {
                         Layout.topMargin: 8
                         spacing: 10
 
-                        SonoraButton {
+                        VirelaButton {
                             primary: true
                             iconName: "folder"
                             text: qsTr("Add Music Folder")
                             onClicked: root.addFolderRequested()
                         }
 
-                        SonoraButton {
+                        VirelaButton {
                             iconName: "plus"
                             text: qsTr("Open Audio Files")
                             onClicked: root.openFilesRequested()

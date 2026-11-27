@@ -5,7 +5,7 @@
 #include <atomic>
 #include <cstdint>
 
-namespace sonora {
+namespace virela {
 
 // 10-band parametric equalizer with double-precision Direct Form II Transposed biquad state
 // and lock-free atomic coefficient swapping for real-time audio callbacks.
@@ -88,4 +88,4 @@ private:
     std::array<std::array<FilterState, kMaxChannels>, kBandCount> state_{};
 };
 
-} // namespace sonora
+} // namespace virela

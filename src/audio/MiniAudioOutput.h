@@ -7,7 +7,7 @@
 #include <memory>
 #include <vector>
 
-namespace sonora {
+namespace virela {
 
 class MiniAudioOutput final : public IAudioOutput {
 public:
@@ -38,4 +38,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-} // namespace sonora
+} // namespace virela

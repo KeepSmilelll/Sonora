@@ -5,7 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace sonora {
+namespace virela {
 
 // Zero-allocation lock-free FFT audio tap & logarithmic spectrum analyzer.
 // RT thread pushes mono-summed PCM frames into a ring window; UI/render thread
@@ -58,4 +58,4 @@ private:
     std::array<float, kBandCount> peakVelocity_{};
 };
 
-} // namespace sonora
+} // namespace virela

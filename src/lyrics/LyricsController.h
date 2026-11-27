@@ -4,7 +4,7 @@
 
 #include <QAbstractListModel>
 
-namespace sonora {
+namespace virela {
 
 class LyricsController : public QAbstractListModel {
     Q_OBJECT
@@ -76,4 +76,4 @@ private:
     qreal activeLineProgress_ = 0.0;
 };
 
-} // namespace sonora
+} // namespace virela

@@ -10,7 +10,7 @@
 #include <numeric>
 #include <random>
 
-namespace sonora {
+namespace virela {
 
 namespace {
 
@@ -1059,4 +1059,4 @@ void PlaybackEngine::handlePendingDeviceReconfigure() {
     }
 }
 
-} // namespace sonora
+} // namespace virela

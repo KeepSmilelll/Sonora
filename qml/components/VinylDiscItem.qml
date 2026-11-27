@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Effects
-import Sonora.UI
+import Virela.UI
 
 // Sculpted spinning circular vinyl LP disc with concentric micro-grooves, circular cover label,
 // spindle hole, fixed diagonal specular sheen, and motor inertia via FrameAnimation.

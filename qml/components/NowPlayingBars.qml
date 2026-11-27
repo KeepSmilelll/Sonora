@@ -1,5 +1,5 @@
 import QtQuick
-import Sonora.UI
+import Virela.UI
 
 // Lightweight 3-bar animated now-playing equalizer indicator (zero CPU when hidden or paused)
 Item {

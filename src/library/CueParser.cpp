@@ -9,7 +9,7 @@
 #include <QRegularExpression>
 #include <algorithm>
 
-namespace sonora {
+namespace virela {
 
 namespace {
 
@@ -253,4 +253,4 @@ CueParseResult CueParser::parseText(const QString& content,
     return res;
 }
 
-} // namespace sonora
+} // namespace virela

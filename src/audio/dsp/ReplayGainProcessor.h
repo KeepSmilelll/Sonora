@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace sonora {
+namespace virela {
 
 // Computes effective linear ReplayGain scale with anti-clipping peak safeguard
 // and gentle soft-clipping limiter for boosted EQ / hot masters.
@@ -61,4 +61,4 @@ public:
     }
 };
 
-} // namespace sonora
+} // namespace virela

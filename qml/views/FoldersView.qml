@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import Sonora.UI
+import Virela.UI
 
 Item {
     id: root
@@ -19,7 +19,7 @@ Item {
             Layout.fillWidth: true
             spacing: 12
 
-            SonoraButton {
+            VirelaButton {
                 visible: root.lib.canGoUpFolder
                 compact: true
                 iconName: "chevron_left"
@@ -59,7 +59,7 @@ Item {
 
             Item { Layout.fillWidth: true }
 
-            SonoraButton {
+            VirelaButton {
                 accentTinted: true
                 iconName: "plus"
                 text: qsTr("Add Folder")
@@ -262,7 +262,7 @@ Item {
                         font.family: DesignTokens.fontFamily
                         font.pixelSize: 13
                     }
-                    SonoraButton {
+                    VirelaButton {
                         Layout.alignment: Qt.AlignHCenter
                         Layout.topMargin: 4
                         primary: true

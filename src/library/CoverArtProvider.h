@@ -8,7 +8,7 @@
 #include <QThreadPool>
 #include <mutex>
 
-namespace sonora {
+namespace virela {
 
 // Asynchronous cover art provider with strict 8 MB RAM LRU cap and disk thumbnail cache.
 // URI format: image://cover/<coverHash>?size=96 (or size=360)
@@ -49,4 +49,4 @@ private:
     QThreadPool ioPool_;
 };
 
-} // namespace sonora
+} // namespace virela

@@ -7,7 +7,7 @@
 #include <QRegularExpression>
 #include <algorithm>
 
-namespace sonora {
+namespace virela {
 
 namespace {
 
@@ -78,11 +78,21 @@ QVector<LyricWordToken> parseEnhancedWords(const QString& body, QString& cleanTe
 
     for (int i = 0; i < matches.size(); ++i) {
         const auto& m = matches[i];
+        const int64_t tagMs = parseTimeTagMs(m.captured(1), m.captured(2), m.captured(3));
         const int startPos = m.capturedEnd();
         const int endPos = (i + 1 < matches.size()) ? matches[i + 1].capturedStart() : body.size();
         const QString seg = body.mid(startPos, endPos - startPos);
+
+        // Trailing empty Enhanced LRC tag acts as the closing end timestamp for the final word.
+        if (seg.isEmpty() || (i == matches.size() - 1 && seg.trimmed().isEmpty())) {
+            if (!tokens.isEmpty() && tokens.last().endTimestampMs < 0 && tagMs > tokens.last().timestampMs) {
+                tokens.last().endTimestampMs = tagMs;
+            }
+            continue;
+        }
+
         LyricWordToken tok;
-        tok.timestampMs = parseTimeTagMs(m.captured(1), m.captured(2), m.captured(3));
+        tok.timestampMs = tagMs;
         tok.text = seg;
         combined.append(seg);
         tokens.push_back(std::move(tok));
@@ -90,6 +100,115 @@ QVector<LyricWordToken> parseEnhancedWords(const QString& body, QString& cleanTe
 
     cleanTextOut = combined.trimmed();
     return tokens;
+}
+
+QVector<LyricWordToken> parseBracketLineWords(const QString& body, int64_t lineStartMs, QString& cleanTextOut) {
+    static const QRegularExpression kParenTag(QStringLiteral("\\((\\d+),(\\d+)(?:,\\d+)?\\)"));
+    static const QRegularExpression kAngleTag(QStringLiteral("<(\\d+),(\\d+)(?:,\\d+)?>"));
+    static const QRegularExpression kLeadingParen(QStringLiteral("^\\s*\\(\\d+,\\d+(?:,\\d+)?\\)"));
+
+    QVector<LyricWordToken> tokens;
+    QString combined;
+
+    // 1. NetEase YRC: (wordStartMs,wordDurMs[,flag])text
+    if (kLeadingParen.match(body).hasMatch()) {
+        QVector<QRegularExpressionMatch> matches;
+        auto it = kParenTag.globalMatch(body);
+        while (it.hasNext()) matches.push_back(it.next());
+
+        for (int i = 0; i < matches.size(); ++i) {
+            const auto& m = matches[i];
+            const int64_t startMs = m.captured(1).toLongLong();
+            const int64_t durMs = m.captured(2).toLongLong();
+            const int startPos = m.capturedEnd();
+            const int endPos = (i + 1 < matches.size()) ? matches[i + 1].capturedStart() : body.size();
+            const QString seg = body.mid(startPos, endPos - startPos);
+            if (seg.isEmpty()) continue;
+
+            LyricWordToken tok;
+            tok.timestampMs = startMs;
+            tok.endTimestampMs = startMs + std::max<int64_t>(1, durMs);
+            tok.text = seg;
+            combined.append(seg);
+            tokens.push_back(std::move(tok));
+        }
+        cleanTextOut = combined.trimmed();
+        return tokens;
+    }
+
+    // 2. KRC-style: <offsetMs,durMs[,flag]>text
+    auto angleIt = kAngleTag.globalMatch(body);
+    if (angleIt.hasNext()) {
+        QVector<QRegularExpressionMatch> matches;
+        while (angleIt.hasNext()) matches.push_back(angleIt.next());
+
+        for (int i = 0; i < matches.size(); ++i) {
+            const auto& m = matches[i];
+            const int64_t startMs = lineStartMs + m.captured(1).toLongLong();
+            const int64_t durMs = m.captured(2).toLongLong();
+            const int startPos = m.capturedEnd();
+            const int endPos = (i + 1 < matches.size()) ? matches[i + 1].capturedStart() : body.size();
+            const QString seg = body.mid(startPos, endPos - startPos);
+            if (seg.isEmpty()) continue;
+
+            LyricWordToken tok;
+            tok.timestampMs = startMs;
+            tok.endTimestampMs = startMs + std::max<int64_t>(1, durMs);
+            tok.text = seg;
+            combined.append(seg);
+            tokens.push_back(std::move(tok));
+        }
+        cleanTextOut = combined.trimmed();
+        return tokens;
+    }
+
+    // 3. QQ Music QRC: text(wordStartMs,wordDurMs)
+    auto parenIt = kParenTag.globalMatch(body);
+    if (parenIt.hasNext()) {
+        int cursor = 0;
+        while (parenIt.hasNext()) {
+            const auto m = parenIt.next();
+            const QString seg = body.mid(cursor, m.capturedStart() - cursor);
+            cursor = m.capturedEnd();
+            if (seg.isEmpty()) continue;
+
+            const int64_t startMs = m.captured(1).toLongLong();
+            const int64_t durMs = m.captured(2).toLongLong();
+            LyricWordToken tok;
+            tok.timestampMs = startMs;
+            tok.endTimestampMs = startMs + std::max<int64_t>(1, durMs);
+            tok.text = seg;
+            combined.append(seg);
+            tokens.push_back(std::move(tok));
+        }
+        cleanTextOut = combined.trimmed();
+        return tokens;
+    }
+
+    cleanTextOut = body.trimmed();
+    return tokens;
+}
+
+QString findSidecarForAudio(const QString& audioFilePath, const QString& extLower) {
+    if (audioFilePath.isEmpty()) return {};
+    const QFileInfo fi(audioFilePath);
+    const QDir dir = fi.dir();
+    const QString base = fi.completeBaseName();
+
+    const QString direct = dir.filePath(base + QLatin1Char('.') + extLower);
+    if (QFileInfo::exists(direct)) {
+        return direct;
+    }
+
+    const QStringList candidates = dir.entryList(
+        {QStringLiteral("*.") + extLower, QStringLiteral("*.") + extLower.toUpper()},
+        QDir::Files);
+    for (const QString& name : candidates) {
+        if (QFileInfo(name).completeBaseName().compare(base, Qt::CaseInsensitive) == 0) {
+            return dir.filePath(name);
+        }
+    }
+    return {};
 }
 
 } // namespace
@@ -103,6 +222,7 @@ ParsedLyrics LyricsParser::parse(const QString& rawText, const QString& sourceLa
 
     // Some LRC files carry separate numeric word markers inside each timed line.
     static const QRegularExpression kInlineWordMarker(QStringLiteral("<([+-]?\\d+)\\s*,\\s*([+-]?\\d+)>"));
+    static const QRegularExpression kBracketLineRe(QStringLiteral("^\\[(\\d+),(\\d+)\\](.*)$"));
     static const QRegularExpression kLineTagRe(QStringLiteral("\\[(\\d{1,3}):(\\d{2})(?:[.:](\\d{1,3}))?\\]"));
     static const QRegularExpression kOffsetRe(QStringLiteral("^\\[offset:\\s*([+-]?\\d+)\\s*\\]$"), QRegularExpression::CaseInsensitiveOption);
     static const QRegularExpression kMetaTagRe(QStringLiteral("^\\[(ti|ar|al|by|re|ve|length):.*\\]$"), QRegularExpression::CaseInsensitiveOption);
@@ -113,6 +233,28 @@ ParsedLyrics LyricsParser::parse(const QString& rawText, const QString& sourceLa
     const QStringList rows = rawText.split(QRegularExpression(QStringLiteral("\\r?\\n")));
     for (const QString& rawRow : rows) {
         QString row = rawRow.trimmed();
+        if (row.isEmpty()) continue;
+        // Skip NetEase YRC JSON metadata header lines such as {"t":0,"c":[...]}
+        if (row.startsWith(QLatin1Char('{')) && row.endsWith(QLatin1Char('}'))) {
+            continue;
+        }
+
+        if (auto bm = kBracketLineRe.match(row); bm.hasMatch()) {
+            const int64_t lineStartMs = bm.captured(1).toLongLong();
+            const int64_t lineDurMs = bm.captured(2).toLongLong();
+            const QString body = bm.captured(3);
+            QString cleanText;
+            auto words = parseBracketLineWords(body, lineStartMs, cleanText);
+
+            LyricLine line;
+            line.timestampMs = lineStartMs;
+            line.durationMs = lineDurMs > 0 ? lineDurMs : -1;
+            line.text = std::move(cleanText);
+            line.words = std::move(words);
+            timedLines.push_back({std::move(line), InlineTiming::None});
+            continue;
+        }
+
         InlineTiming timing = InlineTiming::None;
         auto markers = kInlineWordMarker.globalMatch(row);
         while (markers.hasNext()) {
@@ -195,6 +337,7 @@ ParsedLyrics LyricsParser::parse(const QString& rawText, const QString& sourceLa
                 if (result.lines.last().text.isEmpty()) {
                     result.lines.last().text = std::move(line.text);
                     result.lines.last().words = std::move(line.words);
+                    result.lines.last().durationMs = line.durationMs;
                 } else {
                     result.lines.last().translation = std::move(line.text);
                 }
@@ -211,35 +354,28 @@ ParsedLyrics LyricsParser::parse(const QString& rawText, const QString& sourceLa
 }
 
 QString LyricsParser::findLrcFileForAudio(const QString& audioFilePath) {
-    if (audioFilePath.isEmpty()) return {};
-    const QFileInfo fi(audioFilePath);
-    const QDir dir = fi.dir();
-    const QString base = fi.completeBaseName();
-
-    const QString direct = dir.filePath(base + QStringLiteral(".lrc"));
-    if (QFileInfo::exists(direct)) {
-        return direct;
-    }
-
-    // Case-insensitive match (e.g. .LRC)
-    const QStringList lrcs = dir.entryList({QStringLiteral("*.lrc"), QStringLiteral("*.LRC")}, QDir::Files);
-    for (const QString& name : lrcs) {
-        if (QFileInfo(name).completeBaseName().compare(base, Qt::CaseInsensitive) == 0) {
-            return dir.filePath(name);
-        }
-    }
-    return {};
+    return findSidecarForAudio(audioFilePath, QStringLiteral("lrc"));
 }
 
 ParsedLyrics LyricsParser::loadForTrack(const QString& audioFilePath, const QString& embeddedLyrics) {
-    const QString lrcPath = findLrcFileForAudio(audioFilePath);
-    if (!lrcPath.isEmpty()) {
-        QFile f(lrcPath);
-        if (f.open(QIODevice::ReadOnly)) {
-            const QString decoded = TextEncodingHelper::decodeBytes(f.readAll());
-            ParsedLyrics parsed = parse(decoded, QStringLiteral("LRC"));
-            if (!parsed.lines.isEmpty()) {
-                return parsed;
+    const struct SidecarSpec {
+        const char* ext;
+        const char* label;
+    } sidecars[] = {
+        {"yrc", "YRC"},
+        {"qrc", "QRC"},
+        {"lrc", "LRC"},
+    };
+    for (const auto& spec : sidecars) {
+        const QString path = findSidecarForAudio(audioFilePath, QString::fromLatin1(spec.ext));
+        if (!path.isEmpty()) {
+            QFile f(path);
+            if (f.open(QIODevice::ReadOnly)) {
+                const QString decoded = TextEncodingHelper::decodeBytes(f.readAll());
+                ParsedLyrics parsed = parse(decoded, QString::fromLatin1(spec.label));
+                if (!parsed.lines.isEmpty()) {
+                    return parsed;
+                }
             }
         }
     }
@@ -267,4 +403,4 @@ int LyricsParser::findActiveLineIndex(const ParsedLyrics& lyrics, int64_t positi
     return static_cast<int>(std::distance(lyrics.lines.begin(), it)) - 1;
 }
 
-} // namespace sonora
+} // namespace virela

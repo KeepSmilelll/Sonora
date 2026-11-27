@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import Sonora.UI
+import Virela.UI
 
 Item {
     id: root
@@ -133,7 +133,7 @@ Item {
                         font.pixelSize: 13
                         font.weight: Font.Medium
                     }
-                    SonoraComboBox {
+                    VirelaComboBox {
                         Layout.preferredWidth: 268
                         model: root.controller.audioDevices
                         textRole: "name"
@@ -174,7 +174,7 @@ Item {
                             font.pixelSize: 11
                         }
                     }
-                    SonoraSwitch {
+                    VirelaSwitch {
                         checked: root.settingsObj.wasapiExclusive
                         onToggled: (state) => root.settingsObj.wasapiExclusive = state
                     }
@@ -190,7 +190,7 @@ Item {
                         font.family: DesignTokens.fontFamily
                         font.pixelSize: 13
                     }
-                    SonoraSwitch {
+                    VirelaSwitch {
                         checked: root.settingsObj.autoNativeSampleRate
                         enabled: root.settingsObj.wasapiExclusive
                         onToggled: (state) => root.settingsObj.autoNativeSampleRate = state
@@ -207,7 +207,7 @@ Item {
                         font.family: DesignTokens.fontFamily
                         font.pixelSize: 13
                     }
-                    SonoraSwitch {
+                    VirelaSwitch {
                         checked: root.settingsObj.bitPerfectBypass
                         onToggled: (state) => root.settingsObj.bitPerfectBypass = state
                     }
@@ -223,7 +223,7 @@ Item {
                         font.family: DesignTokens.fontFamily
                         font.pixelSize: 13
                     }
-                    SonoraComboBox {
+                    VirelaComboBox {
                         Layout.preferredWidth: 168
                         model: ["88.2 kHz", "176.4 kHz", "352.8 kHz"]
                         currentIndex: root.settingsObj.dsdTargetSampleRate === 88200 ? 0 : (root.settingsObj.dsdTargetSampleRate === 352800 ? 2 : 1)
@@ -243,7 +243,7 @@ Item {
                         font.family: DesignTokens.fontFamily
                         font.pixelSize: 13
                     }
-                    SonoraComboBox {
+                    VirelaComboBox {
                         Layout.preferredWidth: 168
                         model: [qsTr("Off"), qsTr("Track Gain"), qsTr("Album Gain")]
                         currentIndex: root.settingsObj.replayGainMode
@@ -267,7 +267,7 @@ Item {
                         font.family: DesignTokens.fontFamily
                         font.pixelSize: 13
                     }
-                    SonoraComboBox {
+                    VirelaComboBox {
                         Layout.preferredWidth: 168
                         model: [qsTr("Follow System"), qsTr("Dark"), qsTr("Light")]
                         currentIndex: root.themeObj.themeMode === "dark" ? 1 : (root.themeObj.themeMode === "light" ? 2 : 0)
@@ -287,7 +287,7 @@ Item {
                         font.family: DesignTokens.fontFamily
                         font.pixelSize: 13
                     }
-                    SonoraComboBox {
+                    VirelaComboBox {
                         Layout.preferredWidth: 192
                         model: [qsTr("Windows 11 Mica"), qsTr("Windows 11 Acrylic"), qsTr("Ambient Cover Glow"), qsTr("Solid Minimal")]
                         currentIndex: {
@@ -313,7 +313,7 @@ Item {
                         font.family: DesignTokens.fontFamily
                         font.pixelSize: 13
                     }
-                    SonoraComboBox {
+                    VirelaComboBox {
                         Layout.preferredWidth: 168
                         model: ["简体中文", "English"]
                         currentIndex: root.themeObj.language === "en_US" ? 1 : 0
@@ -333,7 +333,7 @@ Item {
                         font.family: DesignTokens.fontFamily
                         font.pixelSize: 13
                     }
-                    SonoraSwitch {
+                    VirelaSwitch {
                         checked: root.settingsObj.visualizerEnabled
                         onToggled: (state) => root.settingsObj.visualizerEnabled = state
                     }
@@ -349,7 +349,7 @@ Item {
                     Layout.fillWidth: true
                     spacing: 10
 
-                    SonoraButton {
+                    VirelaButton {
                         primary: true
                         compact: true
                         iconName: "plus"
@@ -357,7 +357,7 @@ Item {
                         onClicked: root.addFolderRequested()
                     }
 
-                    SonoraButton {
+                    VirelaButton {
                         compact: true
                         enabled: !root.lib.scanning
                         text: root.lib.scanning ? qsTr("Scanning...") : qsTr("Rescan Now")
@@ -431,7 +431,7 @@ Item {
                         font.family: DesignTokens.fontFamily
                         font.pixelSize: 13
                     }
-                    SonoraSwitch {
+                    VirelaSwitch {
                         checked: root.settingsObj.closeToTray
                         onToggled: (state) => root.settingsObj.closeToTray = state
                     }
@@ -459,7 +459,7 @@ Item {
                             font.pixelSize: 11
                         }
                     }
-                    SonoraSwitch {
+                    VirelaSwitch {
                         checked: root.settingsObj.globalHotkeysEnabled
                         onToggled: (state) => root.settingsObj.globalHotkeysEnabled = state
                     }

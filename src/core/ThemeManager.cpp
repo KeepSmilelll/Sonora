@@ -16,7 +16,7 @@
 #include <windows.h>
 #endif
 
-namespace sonora {
+namespace virela {
 
 ThemeManager::ThemeManager(AppSettings* settings, QQmlEngine* qmlEngine, QObject* parent)
     : QObject(parent)
@@ -165,7 +165,7 @@ void ThemeManager::applyLanguage(const QString& lang) {
         QCoreApplication::removeTranslator(&translator_);
         translatorInstalled_ = false;
     }
-    const QString qmPath = QStringLiteral(":/i18n/sonora_%1.qm").arg(lang);
+    const QString qmPath = QStringLiteral(":/i18n/virela_%1.qm").arg(lang);
     if (translator_.load(qmPath)) {
         QCoreApplication::installTranslator(&translator_);
         translatorInstalled_ = true;
@@ -280,4 +280,4 @@ void ThemeManager::updateFromCoverImage(const QImage& cover) {
     emit ambientColorsChanged();
 }
 
-} // namespace sonora
+} // namespace virela

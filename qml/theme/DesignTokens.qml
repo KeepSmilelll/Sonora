@@ -85,14 +85,18 @@ QtObject {
         : Qt.rgba(0.06, 0.08, 0.16, 0.085)
 
     readonly property color borderHighlight: isDark
-        ? Qt.rgba(1.0, 1.0, 1.0, 0.16)
-        : Qt.rgba(1.0, 1.0, 1.0, 0.92)
+        ? Qt.rgba(1.0, 1.0, 1.0, 0.18)
+        : Qt.rgba(0.06, 0.08, 0.16, 0.16)
+
+    readonly property color borderHover: isDark
+        ? Qt.rgba(1.0, 1.0, 1.0, 0.26)
+        : Qt.rgba(0.06, 0.08, 0.16, 0.24)
 
     readonly property color borderSpecularTop: isDark
         ? Qt.rgba(1.0, 1.0, 1.0, 0.20)
         : Qt.rgba(1.0, 1.0, 1.0, 0.96)
 
-    // Sonora 2.0 L0 / L1 / L2 Depth & Borderless Spatial Surfaces
+    // Virela 2.0 L0 / L1 / L2 Depth & Borderless Spatial Surfaces
     readonly property color hairlineBorder: isDark
         ? Qt.rgba(1.0, 1.0, 1.0, 0.055)
         : Qt.rgba(0.06, 0.08, 0.16, 0.06)

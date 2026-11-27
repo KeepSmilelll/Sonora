@@ -8,7 +8,7 @@
 #include <array>
 #include <cmath>
 
-namespace sonora {
+namespace virela {
 
 namespace {
 
@@ -360,4 +360,4 @@ QSGNode* FluidAuroraItem::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*
     return node;
 }
 
-} // namespace sonora
+} // namespace virela

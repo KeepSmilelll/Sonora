@@ -8,7 +8,7 @@
 #include <QVariantList>
 #include <array>
 
-namespace sonora {
+namespace virela {
 
 class AppSettings : public QObject {
     Q_OBJECT
@@ -160,4 +160,4 @@ private:
     QStringList libraryFolders_;
 };
 
-} // namespace sonora
+} // namespace virela

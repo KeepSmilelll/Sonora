@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <functional>
 
-namespace sonora {
+namespace virela {
 
 // Real-time audio callback: fills interleaved float32 output with frameCount frames.
 using AudioRenderCallback = std::function<void(float* interleavedOut, uint32_t frameCount, uint32_t channels)>;
@@ -32,4 +32,4 @@ public:
     virtual ActiveOutputStatus activeStatus() const = 0;
 };
 
-} // namespace sonora
+} // namespace virela

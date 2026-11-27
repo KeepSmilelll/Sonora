@@ -7,7 +7,7 @@
 #include <QTimer>
 #include <array>
 
-namespace sonora {
+namespace virela {
 
 class PlaybackEngine;
 
@@ -79,4 +79,4 @@ private:
     std::array<float, FftAnalyzer::kBandCount> peaks_{};
 };
 
-} // namespace sonora
+} // namespace virela

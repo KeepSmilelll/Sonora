@@ -2,7 +2,7 @@
 
 #include <QtTest/QtTest>
 
-using namespace sonora;
+using namespace virela;
 
 class TestTextEncoding : public QObject {
     Q_OBJECT

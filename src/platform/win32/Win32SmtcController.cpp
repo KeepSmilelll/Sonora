@@ -28,7 +28,7 @@
 #include <wrl/event.h>
 #include <wrl/wrappers/corewrappers.h>
 
-namespace sonora {
+namespace virela {
 
 using Microsoft::WRL::Callback;
 using Microsoft::WRL::ComPtr;
@@ -143,7 +143,7 @@ void Win32SmtcController::updateTrack(const TrackInfo& track, const QImage& thum
     if (!thumbnail.isNull()) {
         if (impl_->tempThumbPath.isEmpty()) {
             const QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-            impl_->tempThumbPath = QDir(cacheDir).filePath(QStringLiteral("sonora_smtc_thumb.jpg"));
+            impl_->tempThumbPath = QDir(cacheDir).filePath(QStringLiteral("virela_smtc_thumb.jpg"));
         }
         const QImage scaled = thumbnail.scaled(240, 240, Qt::KeepAspectRatio, Qt::SmoothTransformation);
         if (scaled.save(impl_->tempThumbPath, "JPG", 85)) {
@@ -202,7 +202,7 @@ void Win32SmtcController::updatePlaybackState(PlaybackState state, int64_t posMs
     }
 }
 
-} // namespace sonora
+} // namespace virela
 
 #else
 // MinGW / LLVM-MinGW fallback: native Win32 WM_APPCOMMAND hardware media-key listener
@@ -214,7 +214,7 @@ void Win32SmtcController::updatePlaybackState(PlaybackState state, int64_t posMs
 #endif
 #include <windows.h>
 
-namespace sonora {
+namespace virela {
 
 struct Win32SmtcController::Impl final : public QAbstractNativeEventFilter {
     Win32SmtcController* owner = nullptr;
@@ -293,7 +293,7 @@ void Win32SmtcController::updatePlaybackState(PlaybackState state, int64_t, int6
     }
 }
 
-} // namespace sonora
+} // namespace virela
 
 #endif // _MSC_VER
 #endif // _WIN32

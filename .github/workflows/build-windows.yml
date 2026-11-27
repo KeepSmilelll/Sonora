@@ -38,15 +38,15 @@ jobs:
           $ffDir = (Get-ChildItem C:\ffmpeg -Directory | Select-Object -First 1).FullName
           "FFMPEG_ROOT=$ffDir" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Configure, Build, Test & Package Sonora.exe
+      - name: Configure, Build, Test & Package Virela.exe
         shell: pwsh
         run: |
           $env:QT6_DIR = $env:Qt6_DIR
           .\scripts\build_windows.ps1 -Qt6Dir $env:QT6_DIR -FFmpegRoot $env:FFMPEG_ROOT
-          Compress-Archive -Path dist\Sonora\* -DestinationPath Sonora-win64-msvc.zip -Force
+          Compress-Archive -Path dist\Virela\* -DestinationPath Virela-win64-msvc.zip -Force
 
-      - name: Upload Sonora-win64-msvc.zip Artifact
+      - name: Upload Virela-win64-msvc.zip Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Sonora-win64-msvc
-          path: Sonora-win64-msvc.zip
+          name: Virela-win64-msvc
+          path: Virela-win64-msvc.zip

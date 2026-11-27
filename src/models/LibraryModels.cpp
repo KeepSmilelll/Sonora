@@ -11,7 +11,7 @@
 #include <QDirIterator>
 #include <QFileInfo>
 
-namespace sonora {
+namespace virela {
 
 // ---- TrackListModel ----
 
@@ -591,4 +591,4 @@ QVector<TrackInfo> LibraryController::expandDroppedUrls(const QList<QUrl>& urls)
     return tracks;
 }
 
-} // namespace sonora
+} // namespace virela

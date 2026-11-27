@@ -12,7 +12,7 @@
 #include <QUrlQuery>
 #include <algorithm>
 
-namespace sonora {
+namespace virela {
 
 namespace {
 
@@ -201,4 +201,4 @@ void CoverArtProvider::clearRamCache() {
     ramCache_.clear();
 }
 
-} // namespace sonora
+} // namespace virela

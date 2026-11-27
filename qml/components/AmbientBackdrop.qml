@@ -1,5 +1,5 @@
 import QtQuick
-import Sonora.UI
+import Virela.UI
 
 // GPU procedural fluid aurora backdrop powered by single-draw-call FluidAuroraItem
 Item {

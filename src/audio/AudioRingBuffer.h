@@ -8,7 +8,7 @@
 #include <cstring>
 #include <vector>
 
-namespace sonora {
+namespace virela {
 
 // Lock-free Single-Producer Single-Consumer (SPSC) audio ring buffer for interleaved float PCM.
 // Designed for zero-allocation, zero-lock real-time audio callbacks.
@@ -193,4 +193,4 @@ private:
     alignas(64) std::atomic<size_t> read_{0};
 };
 
-} // namespace sonora
+} // namespace virela

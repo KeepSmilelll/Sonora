@@ -10,12 +10,12 @@
 #include <algorithm>
 #include <cmath>
 
-namespace sonora {
+namespace virela {
 
 QString AppSettings::defaultDataDir() {
     QString base = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
     if (base.isEmpty()) {
-        base = QDir::homePath() + QStringLiteral("/.local/share/Sonora");
+        base = QDir::homePath() + QStringLiteral("/.local/share/Virela");
     }
     QDir().mkpath(base);
     return base;
@@ -319,4 +319,4 @@ void AppSettings::removeLibraryFolder(const QString& folder) {
     }
 }
 
-} // namespace sonora
+} // namespace virela

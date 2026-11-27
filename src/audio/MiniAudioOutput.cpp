@@ -14,7 +14,7 @@
 #include <cmath>
 #include <cstring>
 
-namespace sonora {
+namespace virela {
 
 namespace {
 
@@ -353,4 +353,4 @@ ActiveOutputStatus MiniAudioOutput::activeStatus() const {
     return impl_ ? impl_->status : ActiveOutputStatus{};
 }
 
-} // namespace sonora
+} // namespace virela

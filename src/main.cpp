@@ -19,6 +19,7 @@
 #include <QDebug>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QEvent>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QJsonArray>
@@ -26,6 +27,7 @@
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QLockFile>
+#include <QMouseEvent>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
@@ -74,7 +76,7 @@ bool forwardLaunch(const QString& serverName, const QList<QUrl>& urls) {
     return false;
 }
 
-void receiveLaunches(QLocalServer& server, QQuickWindow& window, sonora::PlaybackController& player) {
+void receiveLaunches(QLocalServer& server, QQuickWindow& window, virela::PlaybackController& player) {
     const auto acceptConnections = [&server, &window, &player]() {
         while (auto* socket = server.nextPendingConnection()) {
             QObject::connect(socket, &QLocalSocket::disconnected, socket, &QObject::deleteLater);
@@ -114,6 +116,27 @@ void receiveLaunches(QLocalServer& server, QQuickWindow& window, sonora::Playbac
     acceptConnections();
 }
 
+class OutsideSearchFocusFilter final : public QObject {
+public:
+    explicit OutsideSearchFocusFilter(QQuickWindow* window) : QObject(window), window_(window) {}
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override {
+        if (event->type() == QEvent::MouseButtonPress && window_ && window_->activeFocusItem()) {
+            const auto* me = static_cast<const QMouseEvent*>(event);
+            QMetaObject::invokeMethod(
+                window_,
+                "dismissSearchIfOutside",
+                Q_ARG(QVariant, me->position().x()),
+                Q_ARG(QVariant, me->position().y()));
+        }
+        return QObject::eventFilter(watched, event);
+    }
+
+private:
+    QQuickWindow* window_ = nullptr;
+};
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -124,10 +147,10 @@ int main(int argc, char* argv[]) {
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
     QGuiApplication app(argc, argv);
-    app.setApplicationName(QStringLiteral("Sonora"));
+    app.setApplicationName(QStringLiteral("Virela"));
     app.setApplicationVersion(QStringLiteral("1.0.0"));
-    app.setOrganizationName(QStringLiteral("Sonora"));
-    app.setWindowIcon(QIcon(QStringLiteral(":/resources/sonora.ico")));
+    app.setOrganizationName(QStringLiteral("Virela"));
+    app.setWindowIcon(QIcon(QStringLiteral(":/resources/virela.ico")));
 #ifdef _WIN32
     // Manage application exit explicitly so minimizing to system tray or toggling Mini Mode
     // never terminates the background player unexpectedly.
@@ -147,16 +170,16 @@ int main(int argc, char* argv[]) {
         launchUrls.append(QUrl::fromUserInput(argument, QDir::currentPath()));
     }
 
-    const QString dataDir = sonora::AppSettings::defaultDataDir();
+    const QString dataDir = virela::AppSettings::defaultDataDir();
     const QDir profile(dataDir);
     const auto profileHash = QCryptographicHash::hash(profile.canonicalPath().toUtf8(),
                                                      QCryptographicHash::Sha256).toHex();
-    const QString serverName = QStringLiteral("sonora-") + QString::fromLatin1(profileHash);
+    const QString serverName = QStringLiteral("virela-") + QString::fromLatin1(profileHash);
     QLockFile instanceLock(profile.filePath(QStringLiteral("instance.lock")));
     instanceLock.setStaleLockTime(0);
     if (!instanceLock.tryLock(0)) {
         if (instanceLock.error() != QLockFile::LockFailedError) {
-            qCritical("Could not lock the Sonora profile.");
+            qCritical("Could not lock the Virela profile.");
             return 1;
         }
 #ifdef Q_OS_WIN
@@ -167,7 +190,7 @@ int main(int argc, char* argv[]) {
 #endif
         if (forwardLaunch(serverName, launchUrls)) return 0;
         if (!instanceLock.tryLock(0)) {
-            qWarning("The running Sonora instance did not respond.");
+            qWarning("The running Virela instance did not respond.");
             return 1;
         }
     }
@@ -176,47 +199,47 @@ int main(int argc, char* argv[]) {
     instanceServer.setSocketOptions(QLocalServer::UserAccessOption);
     QLocalServer::removeServer(serverName);
     if (!instanceServer.listen(serverName)) {
-        qCritical() << "Could not listen for Sonora launches:" << instanceServer.errorString();
+        qCritical() << "Could not listen for Virela launches:" << instanceServer.errorString();
         return 1;
     }
 
-    sonora::AppSettings settings;
-    auto platform = sonora::PlatformBridge::create();
+    virela::AppSettings settings;
+    auto platform = virela::PlatformBridge::create();
 
-    sonora::LibraryDatabase libraryDb;
+    virela::LibraryDatabase libraryDb;
     libraryDb.open(QDir(dataDir).filePath(QStringLiteral("library.db")));
 
     // CoverArtProvider ownership transfers to QQmlApplicationEngine via addImageProvider()
-    auto* coverProvider = new sonora::CoverArtProvider(
+    auto* coverProvider = new virela::CoverArtProvider(
         QDir(dataDir).filePath(QStringLiteral("cache/covers")),
-        sonora::CoverArtProvider::kDefaultRamCacheBytes);
+        virela::CoverArtProvider::kDefaultRamCacheBytes);
 
-    sonora::LibraryScanner libraryScanner(&libraryDb, coverProvider);
-    sonora::PlaybackEngine audioEngine;
-    sonora::ThemeManager themeManager(&settings);
-    sonora::PlaybackController playerController(&audioEngine, &settings, &themeManager, platform.get());
+    virela::LibraryScanner libraryScanner(&libraryDb, coverProvider);
+    virela::PlaybackEngine audioEngine;
+    virela::ThemeManager themeManager(&settings);
+    virela::PlaybackController playerController(&audioEngine, &settings, &themeManager, platform.get());
     playerController.setCoverLoader([coverProvider](const QString& hash) {
         return coverProvider->loadCover(hash, 360);
     });
-    sonora::LibraryController libraryController(&libraryDb, &libraryScanner, coverProvider, &settings, &playerController);
-    sonora::LyricsController lyricsController;
+    virela::LibraryController libraryController(&libraryDb, &libraryScanner, coverProvider, &settings, &playerController);
+    virela::LyricsController lyricsController;
 
     // Connect playback clock & track changes -> LyricsController
-    QObject::connect(&audioEngine, &sonora::PlaybackEngine::currentTrackChanged,
-                     &lyricsController, [&](const sonora::TrackInfo& track, int) {
+    QObject::connect(&audioEngine, &virela::PlaybackEngine::currentTrackChanged,
+                     &lyricsController, [&](const virela::TrackInfo& track, int) {
         lyricsController.loadForTrack(track.filePath, track.embeddedLyrics);
     });
-    QObject::connect(&audioEngine, &sonora::PlaybackEngine::positionChanged,
+    QObject::connect(&audioEngine, &virela::PlaybackEngine::positionChanged,
                      &lyricsController, [&](qint64 posMs) {
         lyricsController.updatePositionMs(posMs);
     });
 
     // Bind custom single-draw-call GPU SceneGraph items to PlaybackEngine
-    sonora::SpectrumVisualizerItem::setSharedEngine(&audioEngine);
-    sonora::EqCurveItem::setSharedEngine(&audioEngine);
-    qmlRegisterType<sonora::SpectrumVisualizerItem>("Sonora.UI", 1, 0, "SpectrumVisualizerItem");
-    qmlRegisterType<sonora::EqCurveItem>("Sonora.UI", 1, 0, "EqCurveItem");
-    qmlRegisterType<sonora::FluidAuroraItem>("Sonora.UI", 1, 0, "FluidAuroraItem");
+    virela::SpectrumVisualizerItem::setSharedEngine(&audioEngine);
+    virela::EqCurveItem::setSharedEngine(&audioEngine);
+    qmlRegisterType<virela::SpectrumVisualizerItem>("Virela.UI", 1, 0, "SpectrumVisualizerItem");
+    qmlRegisterType<virela::EqCurveItem>("Virela.UI", 1, 0, "EqCurveItem");
+    qmlRegisterType<virela::FluidAuroraItem>("Virela.UI", 1, 0, "FluidAuroraItem");
 
     QQmlApplicationEngine qmlEngine;
     qmlEngine.addImageProvider(QStringLiteral("cover"), coverProvider);
@@ -234,23 +257,24 @@ int main(int argc, char* argv[]) {
         &app, []() { QCoreApplication::exit(1); },
         Qt::QueuedConnection);
 
-    qmlEngine.loadFromModule(QStringLiteral("Sonora.UI"), QStringLiteral("Main"));
+    qmlEngine.loadFromModule(QStringLiteral("Virela.UI"), QStringLiteral("Main"));
 
     if (!qmlEngine.rootObjects().isEmpty()) {
         if (auto* mainWin = qobject_cast<QQuickWindow*>(qmlEngine.rootObjects().constFirst())) {
             platform->attachMainWindow(mainWin, 46);
+            mainWin->installEventFilter(new OutsideSearchFocusFilter(mainWin));
             platform->setWindowBackdrop(mainWin, themeManager.backdropMode(), themeManager.isDark());
             mainWin->show();
             platform->initMediaSession(mainWin);
-            platform->initTray(QStringLiteral("Sonora"));
+            platform->initTray(QStringLiteral("Virela"));
             platform->setGlobalHotkeysEnabled(settings.globalHotkeysEnabled());
 
             auto updateBackdrop = [mainWin, &platform, &themeManager]() {
                 platform->setWindowBackdrop(mainWin, themeManager.backdropMode(), themeManager.isDark());
             };
-            QObject::connect(&themeManager, &sonora::ThemeManager::themeChanged, mainWin, updateBackdrop);
-            QObject::connect(&themeManager, &sonora::ThemeManager::backdropChanged, mainWin, updateBackdrop);
-            QObject::connect(platform.get(), &sonora::PlatformBridge::quitRequested, &app,
+            QObject::connect(&themeManager, &virela::ThemeManager::themeChanged, mainWin, updateBackdrop);
+            QObject::connect(&themeManager, &virela::ThemeManager::backdropChanged, mainWin, updateBackdrop);
+            QObject::connect(platform.get(), &virela::PlatformBridge::quitRequested, &app,
                              [mainWin, &platform]() {
                 platform->markQuitting();
                 platform->shutdownTray();
@@ -272,8 +296,8 @@ int main(int argc, char* argv[]) {
 
     if (parser.isSet(smokeOpt)) {
         QTimer::singleShot(150, &app, [&]() {
-            const auto mem = sonora::queryProcessMemory();
-            std::cout << "[SMOKE] Sonora Full App loaded cleanly. RSS="
+            const auto mem = virela::queryProcessMemory();
+            std::cout << "[SMOKE] Virela Full App loaded cleanly. RSS="
                       << mem.workingSetMb << " MB, Private="
                       << mem.privateBytesMb << " MB" << std::endl;
             platform->requestQuit();

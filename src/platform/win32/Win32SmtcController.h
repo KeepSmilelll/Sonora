@@ -11,7 +11,7 @@
 
 class QWindow;
 
-namespace sonora {
+namespace virela {
 
 // Windows 10/11 System Media Transport Controls (SMTC) via pure Windows SDK WRL/COM interop
 // (no C++/WinRT projection generator required; links only runtimeobject.lib).
@@ -38,6 +38,6 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-} // namespace sonora
+} // namespace virela
 
 #endif // _WIN32

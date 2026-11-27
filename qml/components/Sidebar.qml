@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import Sonora.UI
+import Virela.UI
 
 GlassPanel {
     id: root

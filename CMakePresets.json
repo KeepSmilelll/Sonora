@@ -21,7 +21,7 @@
         "CMAKE_CXX_COMPILER": "cl",
         "CMAKE_PREFIX_PATH": "$env{QT6_DIR}",
         "FFMPEG_ROOT": "$env{FFMPEG_ROOT}",
-        "SONORA_BUILD_TESTS": "ON"
+        "VIRELA_BUILD_TESTS": "ON"
       }
     },
     {
@@ -49,7 +49,7 @@
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_PREFIX_PATH": "/home/antigravity/deps/qt/6.9.1/gcc_64",
         "FFMPEG_ROOT": "/home/antigravity/deps/ffmpeg-9.0.2",
-        "SONORA_BUILD_TESTS": "ON"
+        "VIRELA_BUILD_TESTS": "ON"
       }
     },
     {
@@ -59,7 +59,7 @@
       "binaryDir": "${sourceDir}/build/linux-asan",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "SONORA_ENABLE_ASAN": "ON"
+        "VIRELA_ENABLE_ASAN": "ON"
       }
     },
     {
@@ -73,7 +73,7 @@
         "QT_HOST_PATH": "/home/antigravity/deps/qt/6.9.1/gcc_64",
         "CMAKE_PREFIX_PATH": "/home/antigravity/deps/qt-win/6.9.1/llvm-mingw_64",
         "FFMPEG_ROOT": "/home/antigravity/deps/ffmpeg-9.0.2-win64",
-        "SONORA_BUILD_TESTS": "OFF"
+        "VIRELA_BUILD_TESTS": "OFF"
       }
     }
   ],

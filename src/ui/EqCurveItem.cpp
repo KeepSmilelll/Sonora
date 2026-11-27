@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace sonora {
+namespace virela {
 
 PlaybackEngine* EqCurveItem::sharedEngine_ = nullptr;
 
@@ -127,4 +127,4 @@ QSGNode* EqCurveItem::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
     return rootNode;
 }
 
-} // namespace sonora
+} // namespace virela

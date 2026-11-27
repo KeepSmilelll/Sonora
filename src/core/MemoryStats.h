@@ -13,7 +13,7 @@
 #include <unistd.h>
 #endif
 
-namespace sonora {
+namespace virela {
 
 struct MemorySnapshot {
     double workingSetMb = 0.0;
@@ -43,4 +43,4 @@ inline MemorySnapshot queryProcessMemory() {
     return snap;
 }
 
-} // namespace sonora
+} // namespace virela

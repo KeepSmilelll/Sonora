@@ -6,7 +6,7 @@
 #include <QStringList>
 #include <QVector>
 
-namespace sonora {
+namespace virela {
 
 struct M3uEntry {
     QString filePath;
@@ -26,4 +26,4 @@ public:
                          bool preferRelativePaths = false);
 };
 
-} // namespace sonora
+} // namespace virela

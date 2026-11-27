@@ -7,7 +7,7 @@
 #include <atomic>
 #include <thread>
 
-namespace sonora {
+namespace virela {
 
 class LibraryDatabase;
 class CoverArtProvider;
@@ -55,4 +55,4 @@ private:
     std::atomic<int> totalCount_{0};
 };
 
-} // namespace sonora
+} // namespace virela

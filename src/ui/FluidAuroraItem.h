@@ -4,7 +4,7 @@
 #include <QQuickItem>
 #include <QTimer>
 
-namespace sonora {
+namespace virela {
 
 // Single-draw-call GPU SceneGraph procedural fluid aurora mesh (QSGGeometryNode).
 // Zero offscreen FBOs, zero textures, < 16 KB RAM, auto-suspends when idle/hidden/solid.
@@ -94,4 +94,4 @@ private:
     QTimer frameTimer_;
 };
 
-} // namespace sonora
+} // namespace virela

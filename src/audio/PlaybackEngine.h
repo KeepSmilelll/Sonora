@@ -16,7 +16,7 @@
 #include <mutex>
 #include <thread>
 
-namespace sonora {
+namespace virela {
 
 class PlaybackEngine : public QObject {
     Q_OBJECT
@@ -80,12 +80,12 @@ public:
     void renderFramesForTest(float* interleavedOut, uint32_t frameCount, uint32_t channels);
 
 signals:
-    void stateChanged(sonora::PlaybackState state);
-    void currentTrackChanged(const sonora::TrackInfo& track, int queueIndex);
+    void stateChanged(virela::PlaybackState state);
+    void currentTrackChanged(const virela::TrackInfo& track, int queueIndex);
     void queueChanged();
     void positionChanged(qint64 positionMs);
     void durationChanged(qint64 durationMs);
-    void outputStatusChanged(const sonora::ActiveOutputStatus& status);
+    void outputStatusChanged(const virela::ActiveOutputStatus& status);
     void errorOccurred(const QString& message);
     void trackPlaybackStarted(qint64 trackId);
 
@@ -180,4 +180,4 @@ private:
     int64_t lastEmittedPosMs_ = -1;
 };
 
-} // namespace sonora
+} // namespace virela

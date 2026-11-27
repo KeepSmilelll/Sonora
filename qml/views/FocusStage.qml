@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 import QtQuick.Effects
-import Sonora.UI
+import Virela.UI
 
 // Continuous Focus Stage: seamlessly morphs between Rail (side companion), Collapsed (0px),
 // and Immersive (100% borderless fluid stage), unifying Now Playing lyrics and Queue.
@@ -18,8 +18,10 @@ Item {
     property string activeTab: "lyrics" // "lyrics" | "queue"
     property bool hideCoverForHero: false
     property bool draggingResize: false
+    property bool eqOpen: false
     property int trackSwitchDirection: 1 // 1 = forward, -1 = backward
 
+    readonly property real immersiveLeftColWidth: immersiveView.immGeom.leftColW
     readonly property real liveBassEnergy: (root.controller.isPlaying
         && root.settingsObj && root.settingsObj.visualizerEnabled
         && root.stageMode !== "collapsed")
@@ -29,6 +31,7 @@ Item {
     signal requestImmersiveToggle()
     signal requestCollapse()
     signal toggleFavorite()
+    signal toggleEq()
     signal openTrackInfo()
     signal dragResize(real deltaX)
     signal dragResizeFinished(real currentWidth)
@@ -54,85 +57,43 @@ Item {
         }
     }
 
-    // Smooth 60fps interpolated active-line progress for pixel-smooth text sweep
-    property real smoothLineProgress: 0.0
-    property bool _allowProgressSmooth: true
-    property int _lastProgressLineIdx: -1
+    // Zero-lag 60fps audio-clock interpolation for true word-timed karaoke lyrics
+    // (0 idle CPU on ordinary line-level LRC or when paused)
+    property real liveEffectivePositionMs: 0.0
+    property real _clockAnchorPosMs: 0.0
+    property double _clockAnchorWallMs: 0.0
 
-    Behavior on smoothLineProgress {
-        enabled: root._allowProgressSmooth
-        NumberAnimation { duration: 48; easing.type: Easing.Linear }
+    FrameAnimation {
+        running: root.visible
+            && root.stageMode !== "collapsed"
+            && root.activeTab === "lyrics"
+            && root.controller.isPlaying
+            && root.lyricsCtrl.hasEnhancedWords
+        onTriggered: {
+            const elapsed = Math.max(0.0, Math.min(80.0, Date.now() - root._clockAnchorWallMs))
+            root.liveEffectivePositionMs = root._clockAnchorPosMs + elapsed
+        }
     }
 
     Connections {
         target: root.lyricsCtrl
         function onPositionProgressChanged() {
-            const idx = root.lyricsCtrl.activeLineIndex
-            const nextP = root.lyricsCtrl.activeLineProgress
-            if (idx !== root._lastProgressLineIdx || nextP < root.smoothLineProgress - 0.12) {
-                root._allowProgressSmooth = false
-                root._lastProgressLineIdx = idx
-                root.smoothLineProgress = nextP
-                root._allowProgressSmooth = true
-            } else {
-                root.smoothLineProgress = nextP
+            const target = root.lyricsCtrl.effectivePositionMs
+            root._clockAnchorPosMs = target
+            root._clockAnchorWallMs = Date.now()
+            if (!root.controller.isPlaying || !root.lyricsCtrl.hasEnhancedWords
+                || Math.abs(target - root.liveEffectivePositionMs) > 90) {
+                root.liveEffectivePositionMs = target
+            } else if (target > root.liveEffectivePositionMs) {
+                root.liveEffectivePositionMs = target
             }
         }
         function onLyricsChanged() {
-            root._allowProgressSmooth = false
-            root._lastProgressLineIdx = -1
-            root.smoothLineProgress = 0.0
-            root._allowProgressSmooth = true
+            const target = root.lyricsCtrl.effectivePositionMs
+            root._clockAnchorPosMs = target
+            root._clockAnchorWallMs = Date.now()
+            root.liveEffectivePositionMs = target
         }
-    }
-
-    function escapeHtml(str) {
-        return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    }
-
-    function styledProgressText(str, progress, activeCol, mutedCol) {
-        if (!str || str.length === 0) return ""
-        const p = Math.max(0.0, Math.min(1.0, progress))
-        const splitIdx = Math.round(str.length * p)
-        const head = escapeHtml(str.slice(0, splitIdx))
-        const tail = escapeHtml(str.slice(splitIdx))
-        return "<font color=\"" + activeCol + "\">" + head + "</font>"
-             + "<font color=\"" + mutedCol + "\">" + tail + "</font>"
-    }
-
-    function splitLineRuns(str) {
-        if (!str || str.length === 0) return []
-        const raw = []
-        let i = 0
-        while (i < str.length) {
-            const ch = str.charCodeAt(i)
-            if (ch <= 0x024F) {
-                let j = i
-                while (j < str.length && str.charCodeAt(j) <= 0x024F && str[j] !== " ") j++
-                while (j < str.length && str[j] === " ") j++
-                raw.push(str.slice(i, j))
-                i = j
-            } else {
-                let j = i + 1
-                while (j < str.length && str[j] === " ") j++
-                raw.push(str.slice(i, j))
-                i = j
-            }
-        }
-        let total = 0
-        for (let k = 0; k < raw.length; k++) total += Math.max(1, raw[k].length)
-        const runs = []
-        let acc = 0
-        for (let k = 0; k < raw.length; k++) {
-            const w = Math.max(1, raw[k].length)
-            runs.push({
-                text: raw[k],
-                startFrac: acc / total,
-                endFrac: (acc + w) / total
-            })
-            acc += w
-        }
-        return runs
     }
 
     // Deterministic closed-form circular vinyl geometry shared by QML items & HeroTransitionLayer
@@ -140,7 +101,7 @@ Item {
         const art = Math.round(Math.max(124, Math.min(196, stageW - 76)))
         return {
             x: Math.round((stageW - art) * 0.5),
-            y: 68,
+            y: 64,
             width: art,
             height: art,
             radius: art * 0.5
@@ -149,22 +110,103 @@ Item {
 
     function computeImmersiveCoverGeometry(stageW, stageH, vizEnabled) {
         const bodyW = Math.max(300, stageW - 32)
-        const bodyH = Math.max(240, stageH - 76)
-        const leftColW = Math.round(Math.max(270, Math.min(420, bodyW * 0.37)))
-        const art = Math.round(Math.max(176, Math.min(324, leftColW - 44, bodyH - 210)))
-        const groupH = art + 14 + 54 + 14 + 28 + (vizEnabled ? 52 : 0)
-        const groupY = Math.max(8, Math.round((bodyH - groupH) * 0.46))
+        const bodyH = Math.max(240, stageH - 72)
+        const leftColW = Math.round(Math.max(296, Math.min(430, bodyW * 0.39)))
+        const controlsH = 66 + 36 + (vizEnabled ? 44 : 0) + 46 + 52 + 42
+        const art = Math.round(Math.max(168, Math.min(308, leftColW - 56, bodyH - controlsH - 24)))
+        const groupH = art + controlsH
+        const groupY = Math.max(6, Math.round((bodyH - groupH) * 0.45))
         return {
             leftColW: leftColW,
             groupH: groupH,
             groupY: groupY,
             x: 16 + Math.round((leftColW - art) * 0.5),
-            y: 60 + groupY,
+            y: 56 + groupY,
             width: art,
             height: art,
             radius: art * 0.5
         }
     }
+
+    component ImmIconBtn: Item {
+        id: btn
+        property string iconName: "play"
+        property bool active: false
+        property bool showActiveDot: false
+        property real iconSize: 16
+        signal clicked()
+
+        implicitWidth: 30
+        implicitHeight: 30
+
+        scale: btnMa.pressed ? 0.89 : (btnMa.containsMouse ? 1.07 : 1.0)
+        Behavior on scale {
+            NumberAnimation { duration: 150; easing.type: Easing.OutBack; easing.overshoot: 1.15 }
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            radius: height / 2
+            color: {
+                if (btnMa.pressed) return DesignTokens.surfacePressed
+                if (btnMa.containsMouse) return DesignTokens.surfaceHover
+                return "transparent"
+            }
+            Behavior on color { ColorAnimation { duration: 130 } }
+        }
+
+        IconGlyph {
+            anchors.centerIn: parent
+            anchors.verticalCenterOffset: (btn.showActiveDot && btn.active) ? -2 : 0
+            name: btn.iconName
+            size: btn.iconSize
+            color: btn.active
+                ? DesignTokens.accentLight
+                : (btnMa.containsMouse ? DesignTokens.textPrimary : DesignTokens.textSecondary)
+        }
+
+        Rectangle {
+            visible: btn.showActiveDot
+            width: 4
+            height: 4
+            radius: 2
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 3
+            color: DesignTokens.accent
+            opacity: btn.active ? 1.0 : 0.0
+            scale: btn.active ? 1.0 : 0.3
+            Behavior on opacity { NumberAnimation { duration: 150 } }
+            Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
+        }
+
+        MouseArea {
+            id: btnMa
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: btn.clicked()
+        }
+    }
+
+    function syncImmersiveHeaderRegions() {
+        if (root.immersiveFactor < 0.5 || typeof platformBridge === "undefined" || !platformBridge) return
+        const rects = []
+        const addRect = function(item) {
+            if (item && item.visible && item.width > 0 && item.height > 0) {
+                const p = item.mapToItem(null, 0, 0)
+                rects.push({ x: p.x, y: p.y, width: item.width, height: item.height })
+            }
+        }
+        addRect(tabPill)
+        addRect(clearQueueBtn)
+        addRect(expToggleBtn)
+        platformBridge.setTitleBarInteractiveRects(rects)
+    }
+
+    onImmersiveFactorChanged: if (immersiveFactor >= 0.5) Qt.callLater(syncImmersiveHeaderRegions)
+    onWidthChanged: if (immersiveFactor >= 0.5) Qt.callLater(syncImmersiveHeaderRegions)
+    onActiveTabChanged: if (immersiveFactor >= 0.5) Qt.callLater(syncImmersiveHeaderRegions)
 
     function predictedCoverRectInWorkspace(workspaceW, workspaceH, targetMode, railTargetW) {
         const vizOn = Boolean(root.settingsObj && root.settingsObj.visualizerEnabled)
@@ -204,6 +246,12 @@ Item {
                 artSwitchAnim.restart()
             }
             root.lastTrackIdentity = idKey
+        }
+        function onIsPlayingChanged() {
+            const target = root.lyricsCtrl.effectivePositionMs
+            root._clockAnchorPosMs = target
+            root._clockAnchorWallMs = Date.now()
+            root.liveEffectivePositionMs = target
         }
     }
 
@@ -295,7 +343,7 @@ Item {
     RowLayout {
         id: headerBar
         anchors.top: parent.top
-        anchors.topMargin: 14
+        anchors.topMargin: 10
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.leftMargin: 16
@@ -309,6 +357,7 @@ Item {
             id: tabPill
             implicitWidth: tabRow.implicitWidth + 6
             implicitHeight: 30
+            onWidthChanged: if (root.immersiveFactor >= 0.5) Qt.callLater(root.syncImmersiveHeaderRegions)
             radius: 15
             color: DesignTokens.surfaceInput
             border.width: 1
@@ -391,37 +440,13 @@ Item {
 
         Item { Layout.fillWidth: true }
 
-        // Lyric offset & source badge (visible in Immersive Lyrics mode)
-        RowLayout {
-            visible: root.immersiveFactor > 0.6 && root.activeTab === "lyrics" && root.lyricsCtrl.isSynced
-            opacity: root.immersiveFactor
-            spacing: 6
-
-            SonoraButton {
-                compact: true
-                text: "-0.25s"
-                onClicked: root.lyricsCtrl.adjustOffsetMs(-250)
-            }
-            Text {
-                text: (root.lyricsCtrl.userOffsetMs >= 0 ? "+" : "") + (root.lyricsCtrl.userOffsetMs / 1000.0).toFixed(2) + "s"
-                color: DesignTokens.textSecondary
-                font.family: DesignTokens.fontFamily
-                font.pixelSize: 11
-                font.features: ({ "tnum": 1 })
-            }
-            SonoraButton {
-                compact: true
-                text: "+0.25s"
-                onClicked: root.lyricsCtrl.adjustOffsetMs(250)
-            }
-        }
-
         FormatBadge {
             visible: root.immersiveFactor > 0.6 && root.activeTab === "lyrics" && root.lyricsCtrl.sourceLabel.length > 0
             text: root.lyricsCtrl.sourceLabel
         }
 
-        SonoraButton {
+        VirelaButton {
+            id: clearQueueBtn
             visible: root.activeTab === "queue" && root.controller.queueCount > 0
             compact: true
             text: qsTr("Clear")
@@ -430,6 +455,7 @@ Item {
 
         // Expand / Collapse Immersive Toggle
         Rectangle {
+            id: expToggleBtn
             implicitWidth: 28
             implicitHeight: 28
             radius: 8
@@ -744,59 +770,94 @@ Item {
                             anchors.rightMargin: 6
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: 2
+                            transformOrigin: Item.Center
+                            scale: rlRow.isActive ? 1.03 : 1.0
+                            Behavior on scale {
+                                SpringAnimation { spring: 3.8; damping: 0.44; epsilon: 0.002 }
+                            }
 
-                            // Text-rendered progress sweep (no underline bars)
+                            // Mode-differentiated lyrics: word-by-word sweep for word-timed formats,
+                            // clean whole-line focus highlight for ordinary line-level LRC.
                             Item {
                                 id: rlTextHost
                                 width: parent.width
-                                height: rlBaseText.implicitHeight
+                                height: rlTextHost.karaokeActive ? rlWordFlow.implicitHeight : rlBaseText.implicitHeight
 
-                                readonly property bool karaokeFill: rlRow.isActive && root.lyricsCtrl.isSynced
-                                readonly property bool multiLineFill: karaokeFill && rlBaseText.lineCount > 1
+                                readonly property bool karaokeActive: rlRow.isActive && rlRow.hasWords && root.lyricsCtrl.isSynced
 
                                 Text {
-                                    id: rlBaseText
-                                    width: parent.width
-                                    wrapMode: Text.Wrap
-                                    horizontalAlignment: Text.AlignHCenter
-                                    textFormat: rlTextHost.multiLineFill ? Text.StyledText : Text.PlainText
-                                    text: {
-                                        const raw = rlRow.text.length > 0 ? rlRow.text : "· · ·"
-                                        if (rlTextHost.multiLineFill) {
-                                            return root.styledProgressText(
-                                                raw, root.smoothLineProgress,
-                                                DesignTokens.textPrimary.toString(),
-                                                Qt.rgba(DesignTokens.textSecondary.r, DesignTokens.textSecondary.g, DesignTokens.textSecondary.b, 0.44).toString())
-                                        }
-                                        return raw
-                                    }
-                                    color: rlTextHost.karaokeFill
-                                        ? DesignTokens.textSecondary
-                                        : (rlRow.isActive ? DesignTokens.textPrimary : DesignTokens.textSecondary)
-                                    opacity: rlTextHost.karaokeFill && !rlTextHost.multiLineFill
-                                        ? 0.40 : (rlTextHost.multiLineFill ? 1.0 : rlRow.depthOpacity)
+                                    id: rlMeasureText
+                                    visible: false
+                                    text: rlRow.text.length > 0 ? rlRow.text : "· · ·"
+                                    textFormat: Text.PlainText
                                     font.family: DesignTokens.fontFamily
                                     font.pixelSize: rlRow.isActive ? 15 : 13
                                     font.weight: rlRow.isActive ? Font.Bold : Font.Medium
-                                    Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-                                    Behavior on color { ColorAnimation { duration: 200 } }
                                 }
 
-                                // Pixel-accurate left-to-right sweep overlay for single-line active lyrics
-                                Item {
-                                    visible: rlTextHost.karaokeFill && !rlTextHost.multiLineFill
-                                    x: Math.round((rlTextHost.width - rlBaseText.paintedWidth) * 0.5)
-                                    y: 0
-                                    height: rlBaseText.height
-                                    width: rlBaseText.paintedWidth * root.smoothLineProgress
-                                    clip: true
+                                Flow {
+                                    id: rlWordFlow
+                                    visible: rlTextHost.karaokeActive
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    width: Math.min(parent.width, Math.ceil(rlMeasureText.implicitWidth) + 2)
+                                    spacing: 0
 
-                                    Text {
-                                        text: rlRow.text.length > 0 ? rlRow.text : "· · ·"
-                                        textFormat: Text.PlainText
-                                        color: DesignTokens.textPrimary
-                                        font: rlBaseText.font
+                                    Repeater {
+                                        model: rlTextHost.karaokeActive ? rlRow.wordTokens : []
+                                        delegate: Item {
+                                            id: rlWordSlot
+                                            required property var modelData
+                                            width: rlWordBase.implicitWidth
+                                            height: rlWordBase.implicitHeight
+
+                                            readonly property real spanMs: Math.max(1, modelData.endMs - modelData.startMs)
+                                            readonly property real fillRatio: Math.max(0.0, Math.min(1.0,
+                                                (root.liveEffectivePositionMs - modelData.startMs) / spanMs))
+                                            readonly property real liftOffset: (fillRatio > 0.01 && fillRatio < 0.99)
+                                                ? (-1.2 * Math.sin(fillRatio * Math.PI)) : 0.0
+
+                                            Text {
+                                                id: rlWordBase
+                                                y: rlWordSlot.liftOffset
+                                                text: rlWordSlot.modelData.text
+                                                textFormat: Text.PlainText
+                                                color: DesignTokens.textSecondary
+                                                opacity: 0.42
+                                                font: rlMeasureText.font
+                                            }
+
+                                            Item {
+                                                anchors.left: parent.left
+                                                anchors.top: parent.top
+                                                height: rlWordBase.height
+                                                width: rlWordBase.width * rlWordSlot.fillRatio
+                                                clip: true
+
+                                                Text {
+                                                    y: rlWordSlot.liftOffset
+                                                    text: rlWordBase.text
+                                                    textFormat: Text.PlainText
+                                                    color: DesignTokens.textPrimary
+                                                    font: rlMeasureText.font
+                                                }
+                                            }
+                                        }
                                     }
+                                }
+
+                                Text {
+                                    id: rlBaseText
+                                    visible: !rlTextHost.karaokeActive
+                                    width: parent.width
+                                    wrapMode: Text.Wrap
+                                    horizontalAlignment: Text.AlignHCenter
+                                    textFormat: Text.PlainText
+                                    text: rlRow.text.length > 0 ? rlRow.text : "· · ·"
+                                    color: rlRow.isActive ? DesignTokens.textPrimary : DesignTokens.textSecondary
+                                    opacity: rlRow.isActive ? 1.0 : rlRow.depthOpacity
+                                    font: rlMeasureText.font
+                                    Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                    Behavior on color { ColorAnimation { duration: 200 } }
                                 }
                             }
 
@@ -1046,13 +1107,15 @@ Item {
             readonly property var immGeom: root.computeImmersiveCoverGeometry(
                 root.width, root.height, Boolean(root.settingsObj && root.settingsObj.visualizerEnabled))
 
-            // Left Column: Hero Artwork + Typography + Wide Spectrum
+            // Left Column: Hero Artwork + Typography + Spectrum + Integrated Borderless Control Tower
             Item {
                 id: immLeftCol
                 anchors.left: parent.left
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
                 width: immersiveView.immGeom.leftColW
+
+                readonly property real ctrlW: Math.round(Math.max(248, Math.min(316, immLeftCol.width - 40)))
 
                 // Subtle soft ambient circular halo behind spinning vinyl LP
                 Rectangle {
@@ -1105,12 +1168,12 @@ Item {
                     anchors.right: parent.right
                     anchors.leftMargin: 12
                     anchors.rightMargin: 12
-                    height: 54
+                    height: 52
                     spacing: 4
 
                     Text {
                         width: parent.width
-                        height: 30
+                        height: 28
                         verticalAlignment: Text.AlignVCenter
                         horizontalAlignment: Text.AlignHCenter
                         elide: Text.ElideRight
@@ -1141,9 +1204,9 @@ Item {
                 Row {
                     id: immBadgesRow
                     anchors.top: immTitleBlock.bottom
-                    anchors.topMargin: 14
+                    anchors.topMargin: 10
                     anchors.horizontalCenter: parent.horizontalCenter
-                    height: 28
+                    height: 26
                     spacing: 7
 
                     FormatBadge {
@@ -1182,16 +1245,271 @@ Item {
                 SpectrumVisualizerItem {
                     id: immSpectrum
                     anchors.top: immBadgesRow.bottom
-                    anchors.topMargin: 12
+                    anchors.topMargin: 10
                     anchors.horizontalCenter: parent.horizontalCenter
-                    width: Math.round(immersiveCoverBox.width * 0.92)
-                    height: 44
+                    width: Math.min(immLeftCol.ctrlW, Math.round(immersiveCoverBox.width * 0.96))
+                    height: 34
                     styleMode: "aurora"
                     visible: root.settingsObj.visualizerEnabled && root.immersiveFactor > 0.25
                     accentColor: DesignTokens.accent
                     secondaryColor: DesignTokens.ambientPrimary.lighter(170)
                     playing: root.controller.isPlaying
                     visualizerEnabled: root.settingsObj.visualizerEnabled && immersiveView.visible
+                }
+
+                // Integrated borderless seek bar + timestamps
+                Item {
+                    id: immSeekBlock
+                    anchors.top: immSpectrum.visible ? immSpectrum.bottom : immBadgesRow.bottom
+                    anchors.topMargin: 12
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: immLeftCol.ctrlW
+                    height: 34
+
+                    readonly property real ratio: root.controller.durationMs > 0
+                        ? Math.max(0.0, Math.min(1.0, (immSeekMa.pressed ? immSeekMa.hoverRatio : (root.controller.positionMs / root.controller.durationMs))))
+                        : 0.0
+
+                    Item {
+                        id: immSeekTrack
+                        anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        height: 18
+                        z: 10
+
+                        Rectangle {
+                            id: immSeekGroove
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: parent.width
+                            height: (immSeekMa.containsMouse || immSeekMa.pressed) ? 6 : 4
+                            radius: height / 2
+                            color: DesignTokens.playbackRail
+                            Behavior on height { NumberAnimation { duration: 130; easing.type: Easing.OutCubic } }
+
+                            Rectangle {
+                                visible: root.controller.durationMs > 0
+                                width: parent.width * immSeekMa.hoverRatio
+                                height: parent.height
+                                radius: parent.radius
+                                color: DesignTokens.isDark ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(0, 0, 0, 0.12)
+                                opacity: immSeekMa.containsMouse ? 1.0 : 0.0
+                                Behavior on opacity { NumberAnimation { duration: 120 } }
+                            }
+
+                            Rectangle {
+                                width: parent.width * immSeekBlock.ratio
+                                height: parent.height
+                                radius: parent.radius
+                                color: DesignTokens.accent
+                            }
+                        }
+
+                        Rectangle {
+                            width: 13
+                            height: 13
+                            radius: 6.5
+                            anchors.verticalCenter: parent.verticalCenter
+                            x: Math.max(0, Math.min(parent.width - width, parent.width * immSeekBlock.ratio - width / 2))
+                            color: "#ffffff"
+                            border.width: 2
+                            border.color: DesignTokens.accent
+                            scale: immSeekMa.pressed ? 1.24 : (immSeekMa.containsMouse && root.controller.durationMs > 0 ? 1.0 : 0.0)
+                            opacity: (immSeekMa.containsMouse || immSeekMa.pressed) && root.controller.durationMs > 0 ? 1.0 : 0.0
+                            Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack; easing.overshoot: 1.15 } }
+                            Behavior on opacity { NumberAnimation { duration: 120 } }
+                        }
+
+                        Rectangle {
+                            id: immHoverTimePill
+                            readonly property bool shown: (immSeekMa.containsMouse || immSeekMa.pressed) && root.controller.durationMs > 0
+                            visible: opacity > 0.01
+                            opacity: shown ? 1.0 : 0.0
+                            scale: shown ? 1.0 : 0.88
+                            z: 40
+                            width: immHoverTimeLabel.implicitWidth + 14
+                            height: 20
+                            radius: 10
+                            y: -21
+                            x: Math.max(0, Math.min(immSeekTrack.width - width, immSeekTrack.width * immSeekMa.hoverRatio - width / 2))
+                            color: DesignTokens.surfaceElevated
+                            border.width: 1
+                            border.color: DesignTokens.borderHighlight
+                            Behavior on opacity { NumberAnimation { duration: 120 } }
+                            Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutBack } }
+
+                            Text {
+                                id: immHoverTimeLabel
+                                anchors.centerIn: parent
+                                text: root.controller.formatTime(immSeekMa.hoverRatio * root.controller.durationMs)
+                                color: DesignTokens.textPrimary
+                                font.family: DesignTokens.fontFamily
+                                font.pixelSize: 10
+                                font.weight: Font.DemiBold
+                                font.features: ({ "tnum": 1 })
+                            }
+                        }
+
+                        MouseArea {
+                            id: immSeekMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: root.controller.durationMs > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
+                            property real hoverRatio: 0.0
+
+                            function updateRatio(mx) {
+                                hoverRatio = Math.max(0.0, Math.min(1.0, mx / Math.max(1, width)))
+                            }
+                            onPositionChanged: (mouse) => updateRatio(mouse.x)
+                            onPressed: (mouse) => updateRatio(mouse.x)
+                            onReleased: (mouse) => {
+                                if (root.controller.durationMs > 0) {
+                                    updateRatio(mouse.x)
+                                    root.controller.seekRatio(hoverRatio)
+                                }
+                            }
+                        }
+                    }
+
+                    Text {
+                        anchors.left: parent.left
+                        anchors.bottom: parent.bottom
+                        text: root.controller.formatTime(immSeekMa.pressed ? immSeekMa.hoverRatio * root.controller.durationMs : root.controller.positionMs)
+                        color: immSeekMa.pressed ? DesignTokens.accent : DesignTokens.textTertiary
+                        font.family: DesignTokens.fontFamily
+                        font.pixelSize: 11
+                        font.weight: immSeekMa.pressed ? Font.DemiBold : Font.Normal
+                        font.features: ({ "tnum": 1 })
+                    }
+
+                    Text {
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        text: root.controller.formatTime(root.controller.durationMs)
+                        color: DesignTokens.textTertiary
+                        font.family: DesignTokens.fontFamily
+                        font.pixelSize: 11
+                        font.features: ({ "tnum": 1 })
+                    }
+                }
+
+                // Integrated centered transport controls
+                Row {
+                    id: immTransportRow
+                    anchors.top: immSeekBlock.bottom
+                    anchors.topMargin: 10
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    height: 42
+                    spacing: 16
+
+                    ImmIconBtn {
+                        anchors.verticalCenter: parent.verticalCenter
+                        iconName: "shuffle"
+                        iconSize: 15
+                        active: root.controller.shuffle
+                        showActiveDot: true
+                        onClicked: root.controller.shuffle = !root.controller.shuffle
+                    }
+
+                    ImmIconBtn {
+                        anchors.verticalCenter: parent.verticalCenter
+                        iconName: "prev"
+                        iconSize: 18
+                        onClicked: root.controller.previous()
+                    }
+
+                    Item {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 42
+                        height: 42
+                        scale: immPlayMa.pressed ? 0.90 : (immPlayMa.containsMouse ? 1.07 : 1.0)
+                        Behavior on scale {
+                            NumberAnimation { duration: 160; easing.type: Easing.OutBack; easing.overshoot: 1.15 }
+                        }
+
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: height / 2
+                            color: immPlayMa.pressed ? Qt.darker(DesignTokens.accent, 1.15) : DesignTokens.accent
+
+                            IconGlyph {
+                                anchors.centerIn: parent
+                                anchors.horizontalCenterOffset: root.controller.isPlaying ? 0 : 1
+                                name: root.controller.isPlaying ? "pause" : "play"
+                                size: 20
+                                color: DesignTokens.playbackInk
+                            }
+                        }
+
+                        MouseArea {
+                            id: immPlayMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.controller.togglePlayPause()
+                        }
+                    }
+
+                    ImmIconBtn {
+                        anchors.verticalCenter: parent.verticalCenter
+                        iconName: "next"
+                        iconSize: 18
+                        onClicked: root.controller.next()
+                    }
+
+                    ImmIconBtn {
+                        anchors.verticalCenter: parent.verticalCenter
+                        iconName: root.controller.repeatMode === 2 ? "repeat_one" : "repeat"
+                        iconSize: 15
+                        active: root.controller.repeatMode !== 0
+                        showActiveDot: true
+                        onClicked: root.controller.cycleRepeatMode()
+                    }
+                }
+
+                // Integrated utility bar (EQ + Track Info + Volume)
+                RowLayout {
+                    id: immUtilityRow
+                    anchors.top: immTransportRow.bottom
+                    anchors.topMargin: 12
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: immLeftCol.ctrlW
+                    height: 30
+                    spacing: 6
+
+                    ImmIconBtn {
+                        iconName: "eq"
+                        iconSize: 15
+                        active: root.eqOpen
+                        onClicked: root.toggleEq()
+                    }
+
+                    ImmIconBtn {
+                        iconName: "info"
+                        iconSize: 15
+                        visible: root.controller.hasTrack
+                        onClicked: root.openTrackInfo()
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    ImmIconBtn {
+                        iconName: (root.controller.muted || root.controller.volume <= 0.001) ? "volume_mute" : "volume"
+                        iconSize: 15
+                        onClicked: root.controller.muted = !root.controller.muted
+                    }
+
+                    VirelaSlider {
+                        Layout.preferredWidth: 108
+                        from: 0.0
+                        to: 1.0
+                        value: root.controller.muted ? 0.0 : root.controller.volume
+                        accentColor: DesignTokens.accent
+                        onMoved: (v) => {
+                            root.controller.muted = false
+                            root.controller.volume = v
+                        }
+                    }
                 }
             }
 
@@ -1259,7 +1577,7 @@ Item {
                         width: immLyricsList.width - 14
                         height: ilCol.implicitHeight + 16
 
-                        readonly property bool karaokeActive: ilRow.isActive && ilRow.hasWords
+                        readonly property bool karaokeActive: ilRow.isActive && ilRow.hasWords && root.lyricsCtrl.isSynced
                         readonly property int dist: Math.abs(index - immLyricsList.currentIndex)
                         readonly property real viewRelY: y - immLyricsList.contentY
                         readonly property real topEdgeFade: Math.max(0.15, Math.min(1.0, (viewRelY + height * 0.5) / 64.0))
@@ -1322,7 +1640,7 @@ Item {
 
                                         readonly property real spanMs: Math.max(1, modelData.endMs - modelData.startMs)
                                         readonly property real fillRatio: Math.max(0.0, Math.min(1.0,
-                                            (root.lyricsCtrl.effectivePositionMs - modelData.startMs) / spanMs))
+                                            (root.liveEffectivePositionMs - modelData.startMs) / spanMs))
                                         readonly property real liftOffset: (fillRatio > 0.01 && fillRatio < 0.99)
                                             ? (-2.2 * Math.sin(fillRatio * Math.PI)) : 0.0
 
@@ -1357,96 +1675,21 @@ Item {
                                 }
                             }
 
-                            // Standard LRC Active Line (pixel-smooth text sweep, zero underline bars)
-                            Item {
-                                id: ilTextHost
+                            // Pure Whole-Line Focus Highlight for ordinary line-level LRC
+                            Text {
+                                id: ilBaseText
                                 visible: !ilRow.karaokeActive
                                 width: parent.width
-                                height: ilBaseText.implicitHeight
-
-                                readonly property bool lineKaraoke: ilRow.isActive && !ilRow.hasWords && root.lyricsCtrl.isSynced
-                                readonly property bool multiLineRuns: lineKaraoke && ilBaseText.lineCount > 1
-
-                                Text {
-                                    id: ilBaseText
-                                    width: parent.width
-                                    wrapMode: Text.Wrap
-                                    textFormat: Text.PlainText
-                                    text: ilRow.text.length > 0 ? ilRow.text : "· · ·"
-                                    color: ilTextHost.lineKaraoke
-                                        ? DesignTokens.textSecondary
-                                        : (ilRow.isActive ? DesignTokens.textPrimary : DesignTokens.textSecondary)
-                                    opacity: ilTextHost.multiLineRuns
-                                        ? 0.0
-                                        : (ilTextHost.lineKaraoke ? 0.40 : ilRow.depthOpacity)
-                                    font.family: DesignTokens.fontFamily
-                                    font.pixelSize: ilRow.isActive ? (root.width < 990 ? 25 : 30) : 22
-                                    font.weight: ilRow.isActive ? Font.Bold : Font.Medium
-                                    Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-                                    Behavior on color { ColorAnimation { duration: 220 } }
-                                }
-
-                                // Single-line active lyric pixel sweep
-                                Item {
-                                    visible: ilTextHost.lineKaraoke && !ilTextHost.multiLineRuns
-                                    anchors.left: parent.left
-                                    anchors.top: parent.top
-                                    height: ilBaseText.height
-                                    width: ilBaseText.paintedWidth * root.smoothLineProgress
-                                    clip: true
-
-                                    Text {
-                                        text: ilBaseText.text
-                                        textFormat: Text.PlainText
-                                        color: DesignTokens.textPrimary
-                                        font: ilBaseText.font
-                                    }
-                                }
-
-                                // Multi-line wrapped active lyric word/char flow sweep
-                                Flow {
-                                    visible: ilTextHost.multiLineRuns
-                                    width: parent.width
-                                    spacing: 0
-
-                                    Repeater {
-                                        model: ilTextHost.multiLineRuns ? root.splitLineRuns(ilRow.text) : []
-                                        delegate: Item {
-                                            id: runSlot
-                                            required property var modelData
-                                            width: runBase.implicitWidth
-                                            height: runBase.implicitHeight
-
-                                            readonly property real span: Math.max(1e-4, modelData.endFrac - modelData.startFrac)
-                                            readonly property real fillRatio: Math.max(0.0, Math.min(1.0,
-                                                (root.smoothLineProgress - modelData.startFrac) / span))
-
-                                            Text {
-                                                id: runBase
-                                                text: runSlot.modelData.text
-                                                textFormat: Text.PlainText
-                                                color: DesignTokens.textSecondary
-                                                opacity: 0.40
-                                                font: ilBaseText.font
-                                            }
-
-                                            Item {
-                                                anchors.left: parent.left
-                                                anchors.top: parent.top
-                                                height: runBase.height
-                                                width: runBase.width * runSlot.fillRatio
-                                                clip: true
-
-                                                Text {
-                                                    text: runBase.text
-                                                    textFormat: Text.PlainText
-                                                    color: DesignTokens.textPrimary
-                                                    font: ilBaseText.font
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                                wrapMode: Text.Wrap
+                                textFormat: Text.PlainText
+                                text: ilRow.text.length > 0 ? ilRow.text : "· · ·"
+                                color: ilRow.isActive ? DesignTokens.textPrimary : DesignTokens.textSecondary
+                                opacity: ilRow.isActive ? 1.0 : ilRow.depthOpacity
+                                font.family: DesignTokens.fontFamily
+                                font.pixelSize: ilRow.isActive ? (root.width < 990 ? 25 : 30) : 22
+                                font.weight: ilRow.isActive ? Font.Bold : Font.Medium
+                                Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                Behavior on color { ColorAnimation { duration: 220 } }
                             }
 
                             Text {

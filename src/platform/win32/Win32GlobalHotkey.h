@@ -9,7 +9,7 @@
 
 class QWindow;
 
-namespace sonora {
+namespace virela {
 
 class Win32GlobalHotkey final : public QObject, public QAbstractNativeEventFilter {
     Q_OBJECT
@@ -41,6 +41,6 @@ private:
     bool filterInstalled_ = false;
 };
 
-} // namespace sonora
+} // namespace virela
 
 #endif // _WIN32

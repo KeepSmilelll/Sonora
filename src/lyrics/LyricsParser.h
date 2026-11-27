@@ -4,18 +4,20 @@
 #include <QVector>
 #include <cstdint>
 
-namespace sonora {
+namespace virela {
 
 struct LyricWordToken {
     int64_t timestampMs = 0;
+    int64_t endTimestampMs = -1;
     QString text;
 };
 
 struct LyricLine {
     int64_t timestampMs = -1; // -1 for unsynced plain lyrics
+    int64_t durationMs = -1;  // explicit line duration when provided (YRC/QRC/KRC)
     QString text;
     QString translation;
-    QVector<LyricWordToken> words; // populated for Enhanced LRC <mm:ss.xx>
+    QVector<LyricWordToken> words; // populated for Enhanced LRC / YRC / QRC / KRC word-timed lines
 };
 
 struct ParsedLyrics {
@@ -37,4 +39,4 @@ public:
     static int findActiveLineIndex(const ParsedLyrics& lyrics, int64_t positionMs, int64_t userOffsetMs = 0);
 };
 
-} // namespace sonora
+} // namespace virela

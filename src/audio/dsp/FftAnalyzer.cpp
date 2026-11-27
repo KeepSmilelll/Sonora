@@ -4,7 +4,7 @@
 #include <cmath>
 #include <complex>
 
-namespace sonora {
+namespace virela {
 
 namespace {
 constexpr double kPi = 3.14159265358979323846;
@@ -180,4 +180,4 @@ void FftAnalyzer::computeBands(std::array<float, kBandCount>& outBars,
     outPeaks = peakHold_;
 }
 
-} // namespace sonora
+} // namespace virela

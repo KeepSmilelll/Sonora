@@ -4,7 +4,7 @@
 #include <cmath>
 #include <complex>
 
-namespace sonora {
+namespace virela {
 
 namespace {
 constexpr double kPi = 3.14159265358979323846;
@@ -188,4 +188,4 @@ const std::array<BiquadEq::Preset, 7>& BiquadEq::builtInPresets() {
     return kPresets;
 }
 
-} // namespace sonora
+} // namespace virela

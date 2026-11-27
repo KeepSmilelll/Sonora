@@ -7,7 +7,7 @@
 #include <QFileInfo>
 #include <algorithm>
 
-namespace sonora {
+namespace virela {
 
 namespace {
 
@@ -825,4 +825,4 @@ QVector<TrackInfo> LibraryDatabase::queryPlaylistTracks(int64_t playlistId) cons
     return out;
 }
 
-} // namespace sonora
+} // namespace virela

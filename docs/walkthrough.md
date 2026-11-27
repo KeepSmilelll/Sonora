@@ -1,6 +1,6 @@
-# Sonora 实现总结与验证报告 (Walkthrough)
+# Virela 实现总结与验证报告 (Walkthrough)
 
-**Sonora**（面向 Windows 10/11 的现代极简磨砂、极致低内存本地音乐播放器）已按批准的 [implementation_plan.md](./implementation_plan.md) 完整实现 **Phase 1 → Phase 2 → Phase 3** 全部模块，工程位于 `/home/antigravity/sonora`。
+**Virela**（面向 Windows 10/11 的现代极简磨砂、极致低内存本地音乐播放器）已按批准的 [implementation_plan.md](./implementation_plan.md) 完整实现 **Phase 1 → Phase 2 → Phase 3** 全部模块，工程位于 `/home/antigravity/virela`。
 
 ---
 
@@ -38,7 +38,7 @@
   - [Win32SmtcController.cpp](../src/platform/win32/Win32SmtcController.cpp)（纯 Windows SDK WRL/COM 互操作接入锁屏与媒体键，仅链接 `runtimeobject.lib`）
   - [Win32TrayIcon.cpp](../src/platform/win32/Win32TrayIcon.cpp)（纯 `Shell_NotifyIconW` 托盘，零 `Qt6::Widgets` 依赖）
   - [Win32GlobalHotkey.cpp](../src/platform/win32/Win32GlobalHotkey.cpp)（`Ctrl+Alt+Space/方向键/M` 全局快捷键）
-- **中/英双语**：[sonora_zh_CN.ts](../translations/sonora_zh_CN.ts) / [sonora_en_US.ts](../translations/sonora_en_US.ts)，支持设置页热切换。
+- **中/英双语**：[virela_zh_CN.ts](../translations/virela_zh_CN.ts) / [virela_en_US.ts](../translations/virela_en_US.ts)，支持设置页热切换。
 
 ---
 
@@ -50,11 +50,11 @@
 | 单元测试套件（5 套） | `ctest --preset linux-dev-test --output-on-failure` | **5/5 通过**（耗时 0.83 s） |
 | 内存安全与 UB 检测 | `cmake --preset linux-asan` + `ASAN_OPTIONS=detect_leaks=0 ctest --preset linux-asan` | **5/5 通过**（零越界、零 UAF、零未定义行为） |
 | QML 静态检查 | `qmllint` 扫描全部 17 个 QML 文件 | **0 错误、0 `Quick.layout-positioning` 布局警告** |
-| 全功能无头烟雾测试与内存采样 | `QT_QPA_PLATFORM=offscreen ./build/linux-dev-test/sonora --smoke-test-exit` | **零运行时警告，实测 RSS = 59.9 MB / Private = 17.5 MB** |
-| Windows x64 交叉编译与便携打包 | `cmake --preset win64-cross-release` + `scripts/package_win64_cross.py` | **PE32+ x86-64 `Sonora.exe` (4.0 MB)，完整便携目录 55.14 MB（零 `Qt6Widgets.dll`、零缺失 DLL）** |
+| 全功能无头烟雾测试与内存采样 | `QT_QPA_PLATFORM=offscreen ./build/linux-dev-test/virela --smoke-test-exit` | **零运行时警告，实测 RSS = 59.9 MB / Private = 17.5 MB** |
+| Windows x64 交叉编译与便携打包 | `cmake --preset win64-cross-release` + `scripts/package_win64_cross.py` | **PE32+ x86-64 `Virela.exe` (4.0 MB)，完整便携目录 55.14 MB（零 `Qt6Widgets.dll`、零缺失 DLL）** |
 
 ### 便携运行包（Windows 10/11 开箱即用）
-- 路径：[`release/Sonora-win64/Sonora.exe`](../release/Sonora-win64/Sonora.exe)
+- 路径：[`release/Virela-win64/Virela.exe`](../release/Virela-win64/Virela.exe)
 - 内含 Qt 6.9.1 (`win64_llvm_mingw`) 精简运行时、FFmpeg 8.1.3 音频精简 4 个 DLL（合计 3.2 MB）、LLVM-MinGW UCRT 运行库、自定义多分辨率图标及 `qt.conf`，经 `x86_64-w64-mingw32-objdump` 递归导入表校验 0 缺失依赖。
 
 ### 单元测试覆盖明细
@@ -76,4 +76,4 @@ $env:FFMPEG_ROOT = "C:\ffmpeg-8.1-full_build-shared"
 .\scripts\build_windows.ps1
 ```
 
-脚本将自动完成配置、MSVC 2022 + Ninja 编译、运行全部 5 套单元测试，并通过 `windeployqt` 与 FFmpeg DLL 拷贝在 `dist\Sonora\` 下生成可直接运行的便携版 `Sonora.exe`。完整说明见 [README.md](../README.md)。
+脚本将自动完成配置、MSVC 2022 + Ninja 编译、运行全部 5 套单元测试，并通过 `windeployqt` 与 FFmpeg DLL 拷贝在 `dist\Virela\` 下生成可直接运行的便携版 `Virela.exe`。完整说明见 [README.md](../README.md)。

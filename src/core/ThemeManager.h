@@ -7,7 +7,7 @@
 
 class QQmlEngine;
 
-namespace sonora {
+namespace virela {
 
 class AppSettings;
 
@@ -76,4 +76,4 @@ private:
     QColor accentColor_;
 };
 
-} // namespace sonora
+} // namespace virela

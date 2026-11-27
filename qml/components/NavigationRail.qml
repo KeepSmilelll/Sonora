@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import Sonora.UI
+import Virela.UI
 
 // Floating collapsible spatial navigation rail (60px icon rail <-> 212px expanded playlist view)
 Item {

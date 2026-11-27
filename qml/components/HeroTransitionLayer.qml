@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Effects
-import Sonora.UI
+import Virela.UI
 
 // Global shared-element Hero transition layer for seamless cover & spinning vinyl morphing.
 // Reuses existing cover image URLs with zero extra RAM and supports safe mid-flight interruption.

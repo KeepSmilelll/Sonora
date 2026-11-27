@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.28)
-project(Sonora VERSION 1.0.0 LANGUAGES C CXX)
+project(Virela VERSION 1.0.0 LANGUAGES C CXX)
 
-option(SONORA_BUILD_TESTS "Build automated unit tests" ON)
-option(SONORA_ENABLE_ASAN "Enable AddressSanitizer/LeakSanitizer (Linux/Clang/GCC)" OFF)
+option(VIRELA_BUILD_TESTS "Build automated unit tests" ON)
+option(VIRELA_ENABLE_ASAN "Enable AddressSanitizer/LeakSanitizer (Linux/Clang/GCC)" OFF)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,7 +22,7 @@ find_package(Qt6 6.9 REQUIRED COMPONENTS
     LinguistTools
 )
 
-if(SONORA_BUILD_TESTS)
+if(VIRELA_BUILD_TESTS)
     find_package(Qt6 6.9 REQUIRED COMPONENTS Test)
 endif()
 
@@ -34,38 +34,38 @@ qt_standard_project_setup(
     I18N_TRANSLATED_LANGUAGES zh_CN en_US
 )
 
-if(SONORA_ENABLE_ASAN AND NOT MSVC)
+if(VIRELA_ENABLE_ASAN AND NOT MSVC)
     add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
     add_link_options(-fsanitize=address,undefined)
 endif()
 
 # ---- Third-party lightweight static libraries ----
-add_library(sonora_miniaudio STATIC
+add_library(virela_miniaudio STATIC
     third_party/miniaudio/miniaudio_impl.c
 )
-target_include_directories(sonora_miniaudio PUBLIC third_party/miniaudio)
+target_include_directories(virela_miniaudio PUBLIC third_party/miniaudio)
 if(UNIX AND NOT APPLE)
-    target_link_libraries(sonora_miniaudio PUBLIC dl pthread m)
+    target_link_libraries(virela_miniaudio PUBLIC dl pthread m)
 elseif(WIN32)
-    target_link_libraries(sonora_miniaudio PUBLIC ole32 uuid)
+    target_link_libraries(virela_miniaudio PUBLIC ole32 uuid)
 endif()
 
-add_library(sonora_sqlite3 STATIC
+add_library(virela_sqlite3 STATIC
     third_party/sqlite3/sqlite3.c
 )
-target_include_directories(sonora_sqlite3 PUBLIC third_party/sqlite3)
-target_compile_definitions(sonora_sqlite3 PRIVATE
+target_include_directories(virela_sqlite3 PUBLIC third_party/sqlite3)
+target_compile_definitions(virela_sqlite3 PRIVATE
     SQLITE_ENABLE_FTS5=1
     SQLITE_THREADSAFE=1
     SQLITE_DEFAULT_MEMSTATUS=0
     SQLITE_OMIT_DEPRECATED=1
 )
 if(UNIX AND NOT APPLE)
-    target_link_libraries(sonora_sqlite3 PUBLIC dl pthread m)
+    target_link_libraries(virela_sqlite3 PUBLIC dl pthread m)
 endif()
 
 # ---- Core C++ library (shared by app and automated unit tests) ----
-set(SONORA_CORE_SOURCES
+set(VIRELA_CORE_SOURCES
     src/audio/AudioTypes.h
     src/audio/AudioRingBuffer.h
     src/audio/FFmpegDecoder.h
@@ -116,7 +116,7 @@ set(SONORA_CORE_SOURCES
 )
 
 if(WIN32)
-    list(APPEND SONORA_CORE_SOURCES
+    list(APPEND VIRELA_CORE_SOURCES
         src/platform/win32/Win32WindowHelper.h
         src/platform/win32/Win32WindowHelper.cpp
         src/platform/win32/Win32TrayIcon.h
@@ -128,9 +128,9 @@ if(WIN32)
     )
 endif()
 
-add_library(sonora_core STATIC ${SONORA_CORE_SOURCES})
-target_include_directories(sonora_core PUBLIC src)
-target_link_libraries(sonora_core PUBLIC
+add_library(virela_core STATIC ${VIRELA_CORE_SOURCES})
+target_include_directories(virela_core PUBLIC src)
+target_link_libraries(virela_core PUBLIC
     Qt6::Core
     Qt6::Gui
     Qt6::Qml
@@ -139,12 +139,12 @@ target_link_libraries(sonora_core PUBLIC
     FFmpeg::avcodec
     FFmpeg::avutil
     FFmpeg::swresample
-    sonora_miniaudio
-    sonora_sqlite3
+    virela_miniaudio
+    virela_sqlite3
 )
 
 if(WIN32)
-    target_link_libraries(sonora_core PUBLIC
+    target_link_libraries(virela_core PUBLIC
         dwmapi
         shell32
         user32
@@ -152,42 +152,42 @@ if(WIN32)
         ole32
     )
     if(MSVC)
-        target_link_libraries(sonora_core PUBLIC runtimeobject)
+        target_link_libraries(virela_core PUBLIC runtimeobject)
     endif()
-    target_compile_definitions(sonora_core PUBLIC UNICODE _UNICODE NOMINMAX)
-    set_target_properties(sonora_core PROPERTIES AUTOMOC_MOC_OPTIONS "-D_WIN32")
+    target_compile_definitions(virela_core PUBLIC UNICODE _UNICODE NOMINMAX)
+    set_target_properties(virela_core PROPERTIES AUTOMOC_MOC_OPTIONS "-D_WIN32")
 endif()
 
 if(MSVC)
-    target_compile_options(sonora_core PRIVATE /W4 /wd4324 /permissive- /utf-8)
+    target_compile_options(virela_core PRIVATE /W4 /wd4324 /permissive- /utf-8)
 else()
-    target_compile_options(sonora_core PRIVATE -Wall -Wextra)
+    target_compile_options(virela_core PRIVATE -Wall -Wextra)
 endif()
 
 # ---- Application executable + QML module ----
-set(SONORA_APP_SOURCES src/main.cpp)
+set(VIRELA_APP_SOURCES src/main.cpp)
 if(WIN32)
-    list(APPEND SONORA_APP_SOURCES resources/sonora.rc)
-    set_property(SOURCE resources/sonora.rc APPEND PROPERTY OBJECT_DEPENDS
-        "${CMAKE_CURRENT_SOURCE_DIR}/resources/sonora.ico"
+    list(APPEND VIRELA_APP_SOURCES resources/virela.rc)
+    set_property(SOURCE resources/virela.rc APPEND PROPERTY OBJECT_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/resources/virela.ico"
     )
 endif()
 
-qt_add_executable(sonora
-    ${SONORA_APP_SOURCES}
+qt_add_executable(virela
+    ${VIRELA_APP_SOURCES}
 )
 
-qt_add_resources(sonora "sonora_app_icon"
+qt_add_resources(virela "virela_app_icon"
     PREFIX "/"
-    FILES resources/sonora.ico
+    FILES resources/virela.ico
 )
 
 set_source_files_properties(qml/theme/DesignTokens.qml PROPERTIES
     QT_QML_SINGLETON_TYPE TRUE
 )
 
-qt_add_qml_module(sonora
-    URI Sonora.UI
+qt_add_qml_module(virela
+    URI Virela.UI
     VERSION 1.0
     QML_FILES
         qml/Main.qml
@@ -199,10 +199,10 @@ qt_add_qml_module(sonora
         qml/components/HeroTransitionLayer.qml
         qml/components/NavigationRail.qml
         qml/components/VinylDiscItem.qml
-        qml/components/SonoraButton.qml
-        qml/components/SonoraSwitch.qml
-        qml/components/SonoraSlider.qml
-        qml/components/SonoraComboBox.qml
+        qml/components/VirelaButton.qml
+        qml/components/VirelaSwitch.qml
+        qml/components/VirelaSlider.qml
+        qml/components/VirelaComboBox.qml
         qml/components/NowPlayingBars.qml
         qml/components/TitleBar.qml
         qml/components/Sidebar.qml
@@ -219,50 +219,50 @@ qt_add_qml_module(sonora
         qml/windows/MiniPlayerWindow.qml
 )
 
-qt_add_translations(sonora
+qt_add_translations(virela
     TS_FILES
-        translations/sonora_zh_CN.ts
-        translations/sonora_en_US.ts
+        translations/virela_zh_CN.ts
+        translations/virela_en_US.ts
     RESOURCE_PREFIX "/i18n"
 )
 
-target_link_libraries(sonora PRIVATE
-    sonora_core
+target_link_libraries(virela PRIVATE
+    virela_core
     Qt6::Network
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::QuickDialogs2
 )
 
-set_target_properties(sonora PROPERTIES
+set_target_properties(virela PROPERTIES
     WIN32_EXECUTABLE TRUE
     MACOSX_BUNDLE FALSE
 )
 if(WIN32)
-    set_target_properties(sonora PROPERTIES OUTPUT_NAME "Sonora")
+    set_target_properties(virela PROPERTIES OUTPUT_NAME "Virela")
 endif()
 
 if(UNIX AND NOT APPLE AND FFMPEG_ROOT)
-    set_target_properties(sonora PROPERTIES
+    set_target_properties(virela PROPERTIES
         BUILD_RPATH "${FFMPEG_ROOT}/lib"
     )
 endif()
 
 if(WIN32 AND FFMPEG_RUNTIME_DLLS)
     foreach(_dll ${FFMPEG_RUNTIME_DLLS})
-        add_custom_command(TARGET sonora POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_dll}" "$<TARGET_FILE_DIR:sonora>"
+        add_custom_command(TARGET virela POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_dll}" "$<TARGET_FILE_DIR:virela>"
         )
     endforeach()
 endif()
 
 # ---- Automated Unit Tests ----
-if(SONORA_BUILD_TESTS)
+if(VIRELA_BUILD_TESTS)
     enable_testing()
 
-    function(sonora_add_test test_name test_src)
+    function(virela_add_test test_name test_src)
         add_executable(${test_name} ${test_src})
-        target_link_libraries(${test_name} PRIVATE sonora_core Qt6::Test)
+        target_link_libraries(${test_name} PRIVATE virela_core Qt6::Test)
         if(UNIX AND NOT APPLE AND FFMPEG_ROOT)
             set_target_properties(${test_name} PROPERTIES BUILD_RPATH "${FFMPEG_ROOT}/lib")
         endif()
@@ -277,17 +277,17 @@ if(SONORA_BUILD_TESTS)
         endif()
     endfunction()
 
-    sonora_add_test(test_ring_buffer tests/test_ring_buffer.cpp)
-    sonora_add_test(test_text_encoding tests/test_text_encoding.cpp)
-    sonora_add_test(test_ffmpeg_decoder tests/test_ffmpeg_decoder.cpp)
+    virela_add_test(test_ring_buffer tests/test_ring_buffer.cpp)
+    virela_add_test(test_text_encoding tests/test_text_encoding.cpp)
+    virela_add_test(test_ffmpeg_decoder tests/test_ffmpeg_decoder.cpp)
     if(FFMPEG_EXECUTABLE)
         target_compile_definitions(test_ffmpeg_decoder PRIVATE
-            SONORA_FFMPEG_EXECUTABLE="${FFMPEG_EXECUTABLE}"
+            VIRELA_FFMPEG_EXECUTABLE="${FFMPEG_EXECUTABLE}"
         )
     endif()
     if(FFMPEG_BIN_DIR)
         target_compile_definitions(test_ffmpeg_decoder PRIVATE
-            SONORA_FFMPEG_BIN_DIR="${FFMPEG_BIN_DIR}"
+            VIRELA_FFMPEG_BIN_DIR="${FFMPEG_BIN_DIR}"
         )
     endif()
     if(WIN32 AND FFMPEG_RUNTIME_DLLS)
@@ -297,6 +297,6 @@ if(SONORA_BUILD_TESTS)
             )
         endforeach()
     endif()
-    sonora_add_test(test_library_and_parsers tests/test_library_and_parsers.cpp)
-    sonora_add_test(test_dsp_and_fft tests/test_dsp_and_fft.cpp)
+    virela_add_test(test_library_and_parsers tests/test_library_and_parsers.cpp)
+    virela_add_test(test_dsp_and_fft tests/test_dsp_and_fft.cpp)
 endif()

@@ -11,7 +11,7 @@
 
 struct sqlite3;
 
-namespace sonora {
+namespace virela {
 
 struct AlbumSummary {
     QString album;
@@ -94,4 +94,4 @@ private:
     mutable std::mutex mutex_;
 };
 
-} // namespace sonora
+} // namespace virela

@@ -1,7 +1,7 @@
 #ifdef _WIN32
 
 #include "platform/win32/Win32TrayIcon.h"
-#include "platform/win32/SonoraResourceIds.h"
+#include "platform/win32/VirelaResourceIds.h"
 
 #include <QCoreApplication>
 #include <QMetaObject>
@@ -17,7 +17,7 @@
 #include <cwchar>
 #include <string>
 
-namespace sonora {
+namespace virela {
 
 namespace {
 constexpr UINT kTrayCallbackMsg = WM_USER + 201;
@@ -56,11 +56,11 @@ bool Win32TrayIcon::addTrayIcon() {
     nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     nid.uCallbackMessage = kTrayCallbackMsg;
     const HMODULE module = GetModuleHandleW(nullptr);
-    nid.hIcon = static_cast<HICON>(LoadImageW(module, MAKEINTRESOURCEW(IDI_SONORA_APP), IMAGE_ICON,
+    nid.hIcon = static_cast<HICON>(LoadImageW(module, MAKEINTRESOURCEW(IDI_VIRELA_APP), IMAGE_ICON,
                                              GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
                                              LR_SHARED));
     if (!nid.hIcon) {
-        nid.hIcon = LoadIconW(module, MAKEINTRESOURCEW(IDI_SONORA_APP));
+        nid.hIcon = LoadIconW(module, MAKEINTRESOURCEW(IDI_VIRELA_APP));
     }
     if (!nid.hIcon) {
         nid.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
@@ -135,7 +135,7 @@ void Win32TrayIcon::showContextMenu() {
         return;
     }
 
-    AppendMenuW(menu, MF_STRING, kCmdShow, L"显示 Sonora / Show Sonora");
+    AppendMenuW(menu, MF_STRING, kCmdShow, L"显示 Virela / Show Virela");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kCmdPlayPause, playing_ ? L"暂停 / Pause" : L"播放 / Play");
     AppendMenuW(menu, MF_STRING, kCmdPrev, L"上一首 / Previous");
@@ -198,6 +198,6 @@ bool Win32TrayIcon::nativeEventFilter(const QByteArray& eventType, void* message
     return false;
 }
 
-} // namespace sonora
+} // namespace virela
 
 #endif // _WIN32

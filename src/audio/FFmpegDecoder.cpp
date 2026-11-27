@@ -20,7 +20,7 @@ extern "C" {
 #include <libswresample/swresample.h>
 }
 
-namespace sonora {
+namespace virela {
 
 namespace {
 
@@ -776,4 +776,4 @@ QByteArray FFmpegDecoder::extractEmbeddedCover(const QString& filePath) {
     return cover;
 }
 
-} // namespace sonora
+} // namespace virela

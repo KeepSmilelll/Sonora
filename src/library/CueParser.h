@@ -6,7 +6,7 @@
 #include <QString>
 #include <QVector>
 
-namespace sonora {
+namespace virela {
 
 struct CueParseResult {
     bool valid = false;
@@ -31,4 +31,4 @@ public:
     static int64_t parseCueTimestampMs(const QString& ts);
 };
 
-} // namespace sonora
+} // namespace virela

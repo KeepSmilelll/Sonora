@@ -10,7 +10,7 @@
 
 class QWindow;
 
-namespace sonora {
+namespace virela {
 
 // Zero-QtWidgets Windows system tray icon implemented directly via Shell_NotifyIconW.
 class Win32TrayIcon final : public QObject, public QAbstractNativeEventFilter {
@@ -46,9 +46,9 @@ private:
     bool playing_ = false;
     bool filterInstalled_ = false;
     bool menuOpen_ = false;
-    QString tooltip_ = QStringLiteral("Sonora");
+    QString tooltip_ = QStringLiteral("Virela");
 };
 
-} // namespace sonora
+} // namespace virela
 
 #endif // _WIN32

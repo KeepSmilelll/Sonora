@@ -1,4 +1,4 @@
-# Sonora Windows 10/11 Build & Portable Packaging Script (MSVC 2022 + Qt 6.9.1 + FFmpeg 9.0.2)
+# Virela Windows 10/11 Build & Portable Packaging Script (MSVC 2022 + Qt 6.9.1 + FFmpeg 9.0.2)
 param(
     [string]$Qt6Dir = $env:QT6_DIR,
     [string]$FFmpegRoot = $env:FFMPEG_ROOT,
@@ -47,11 +47,11 @@ if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
 $env:QT6_DIR = $Qt6Dir
 $env:FFMPEG_ROOT = $FFmpegRoot
 
-Write-Host "==> Configuring Sonora ($Preset) with FFmpeg: $FFmpegRoot ..." -ForegroundColor Cyan
+Write-Host "==> Configuring Virela ($Preset) with FFmpeg: $FFmpegRoot ..." -ForegroundColor Cyan
 cmake --preset $Preset
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "==> Building Sonora..." -ForegroundColor Cyan
+Write-Host "==> Building Virela..." -ForegroundColor Cyan
 cmake --build --preset $Preset --parallel
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -64,13 +64,13 @@ if (-not $SkipTests) {
 
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $BuildDir = Join-Path $RepoRoot "build\$Preset"
-$DistDir = Join-Path $RepoRoot "dist\Sonora"
+$DistDir = Join-Path $RepoRoot "dist\Virela"
 if (Test-Path $DistDir) {
     Remove-Item -Recurse -Force $DistDir
 }
 New-Item -ItemType Directory -Force -Path $DistDir | Out-Null
 
-Copy-Item (Join-Path $BuildDir "Sonora.exe") (Join-Path $DistDir "Sonora.exe") -Force
+Copy-Item (Join-Path $BuildDir "Virela.exe") (Join-Path $DistDir "Virela.exe") -Force
 Copy-Item (Join-Path $FFmpegRoot "bin\avcodec*.dll") $DistDir -Force
 Copy-Item (Join-Path $FFmpegRoot "bin\avformat*.dll") $DistDir -Force
 Copy-Item (Join-Path $FFmpegRoot "bin\avutil*.dll") $DistDir -Force
@@ -78,7 +78,7 @@ Copy-Item (Join-Path $FFmpegRoot "bin\swresample*.dll") $DistDir -Force
 
 $WinDeployQt = Join-Path $Qt6Dir "bin\windeployqt.exe"
 Write-Host "==> Running windeployqt..." -ForegroundColor Cyan
-& $WinDeployQt --release --no-translations --no-opengl-sw --no-system-d3d-compiler --compiler-runtime --qmldir (Join-Path $RepoRoot "qml") (Join-Path $DistDir "Sonora.exe")
+& $WinDeployQt --release --no-translations --no-opengl-sw --no-system-d3d-compiler --compiler-runtime --qmldir (Join-Path $RepoRoot "qml") (Join-Path $DistDir "Virela.exe")
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Ensure qt.conf exists for clean self-contained plugin & QML lookup
@@ -94,7 +94,7 @@ if (Test-Path (Join-Path $DistDir "Qt6Widgets.dll")) {
 Write-Host "==> Portable build ready at: $DistDir" -ForegroundColor Green
 
 if ($SyncRelease) {
-    $ReleaseDir = Join-Path $RepoRoot "release\Sonora-win64"
+    $ReleaseDir = Join-Path $RepoRoot "release\Virela-win64"
     Write-Host "==> Syncing portable build to $ReleaseDir ..." -ForegroundColor Cyan
     if (Test-Path $ReleaseDir) {
         Remove-Item -Recurse -Force $ReleaseDir

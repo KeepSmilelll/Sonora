@@ -4,7 +4,31 @@
 #include <QVariantMap>
 #include <algorithm>
 
-namespace sonora {
+namespace virela {
+
+namespace {
+
+int64_t resolveWordEndMs(const LyricLine& line, int wordIdx, int64_t nextLineTs) {
+    const int64_t startMs = line.words[wordIdx].timestampMs;
+    if (line.words[wordIdx].endTimestampMs > startMs) {
+        return line.words[wordIdx].endTimestampMs;
+    }
+    if (wordIdx + 1 < line.words.size() && line.words[wordIdx + 1].timestampMs > startMs) {
+        return line.words[wordIdx + 1].timestampMs;
+    }
+    if (line.durationMs > 0 && line.timestampMs >= 0 && line.timestampMs + line.durationMs > startMs) {
+        return line.timestampMs + line.durationMs;
+    }
+    // Cap final word duration when followed by a long instrumental interlude.
+    const int64_t chars = std::max<int64_t>(1, line.words[wordIdx].text.trimmed().size());
+    const int64_t maxTailMs = std::clamp<int64_t>(chars * 350 + 500, 700, 2600);
+    if (nextLineTs > startMs) {
+        return std::max<int64_t>(startMs + 60, std::min<int64_t>(nextLineTs, startMs + maxTailMs));
+    }
+    return startMs + maxTailMs;
+}
+
+} // namespace
 
 LyricsController::LyricsController(QObject* parent) : QAbstractListModel(parent) {}
 
@@ -15,6 +39,9 @@ int LyricsController::rowCount(const QModelIndex& parent) const {
 qint64 LyricsController::lineDurationMs(int row) const {
     if (row < 0 || row >= parsed_.lines.size()) {
         return 3500;
+    }
+    if (parsed_.lines[row].durationMs > 0) {
+        return std::clamp<qint64>(parsed_.lines[row].durationMs, 300, 15000);
     }
     const int64_t ts = parsed_.lines[row].timestampMs;
     if (ts >= 0 && row + 1 < parsed_.lines.size()) {
@@ -43,13 +70,7 @@ QVariantList LyricsController::wordTokensForRow(int row) const {
     list.reserve(line.words.size());
     for (int i = 0; i < line.words.size(); ++i) {
         const int64_t startMs = line.words[i].timestampMs;
-        int64_t endMs = startMs + 900;
-        if (i + 1 < line.words.size()) {
-            endMs = line.words[i + 1].timestampMs;
-        } else if (nextLineTs > startMs) {
-            endMs = nextLineTs;
-        }
-        endMs = std::max<int64_t>(startMs + 60, endMs);
+        const int64_t endMs = std::max<int64_t>(startMs + 60, resolveWordEndMs(line, i, nextLineTs));
 
         QVariantMap tok;
         tok.insert(QStringLiteral("startMs"), QVariant::fromValue(static_cast<qint64>(startMs)));
@@ -177,25 +198,24 @@ void LyricsController::updatePositionMs(qint64 positionMs) {
             const int64_t nextLineTs = (activeLineIndex_ + 1 < parsed_.lines.size())
                 ? parsed_.lines[activeLineIndex_ + 1].timestampMs
                 : -1;
-            qreal sum = 0.0;
+            qreal weightedSum = 0.0;
+            qreal totalWeight = 0.0;
             for (int i = 0; i < line.words.size(); ++i) {
                 const int64_t startMs = line.words[i].timestampMs;
-                int64_t endMs = startMs + 900;
-                if (i + 1 < line.words.size()) {
-                    endMs = line.words[i + 1].timestampMs;
-                } else if (nextLineTs > startMs) {
-                    endMs = nextLineTs;
-                }
-                endMs = std::max<int64_t>(startMs + 60, endMs);
+                const int64_t endMs = std::max<int64_t>(startMs + 60, resolveWordEndMs(line, i, nextLineTs));
+                const qreal w = std::max<qreal>(1.0, static_cast<qreal>(line.words[i].text.size()));
+                totalWeight += w;
 
                 if (effectivePositionMs_ >= endMs) {
-                    sum += 1.0;
+                    weightedSum += w;
                 } else if (effectivePositionMs_ > startMs) {
-                    sum += static_cast<qreal>(effectivePositionMs_ - startMs)
-                         / static_cast<qreal>(endMs - startMs);
+                    weightedSum += w * (static_cast<qreal>(effectivePositionMs_ - startMs)
+                                      / static_cast<qreal>(endMs - startMs));
                 }
             }
-            activeLineProgress_ = std::clamp<qreal>(sum / static_cast<qreal>(line.words.size()), 0.0, 1.0);
+            activeLineProgress_ = totalWeight > 0.0
+                ? std::clamp<qreal>(weightedSum / totalWeight, 0.0, 1.0)
+                : 0.0;
         } else {
             const qint64 dur = lineDurationMs(activeLineIndex_);
             activeLineProgress_ = std::clamp<qreal>(
@@ -215,4 +235,4 @@ qint64 LyricsController::timestampForLine(int lineIndex) const {
     return ts >= 0 ? std::max<int64_t>(0, ts - parsed_.offsetMs - userOffsetMs_) : -1;
 }
 
-} // namespace sonora
+} // namespace virela

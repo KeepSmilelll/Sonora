@@ -3,7 +3,7 @@
 #include <QByteArray>
 #include <QString>
 
-namespace sonora {
+namespace virela {
 
 class TextEncodingHelper {
 public:
@@ -23,4 +23,4 @@ public:
     static bool tryDecodeCodepage(const QByteArray& bytes, const char* encodingName, QString& out);
 };
 
-} // namespace sonora
+} // namespace virela

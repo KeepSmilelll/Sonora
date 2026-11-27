@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import Sonora.UI
+import Virela.UI
 
 Item {
     id: root
@@ -256,7 +256,7 @@ Item {
                         }
                     }
 
-                    SonoraButton {
+                    VirelaButton {
                         visible: root.selectedArtist.length > 0 && root.lib.detailTracksModel.count > 0
                         primary: true
                         iconName: "play"

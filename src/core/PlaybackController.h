@@ -9,7 +9,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 
-namespace sonora {
+namespace virela {
 
 class AppSettings;
 class ThemeManager;
@@ -218,4 +218,4 @@ private:
     CoverLoaderFn coverLoader_;
 };
 
-} // namespace sonora
+} // namespace virela

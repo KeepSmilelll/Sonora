@@ -5,7 +5,7 @@
 #include <QVariantMap>
 #include <cstdint>
 
-namespace sonora {
+namespace virela {
 
 enum class PlaybackState : int {
     Stopped = 0,
@@ -166,8 +166,8 @@ struct ActiveOutputStatus {
     QString fallbackNotice;
 };
 
-} // namespace sonora
+} // namespace virela
 
-Q_DECLARE_METATYPE(sonora::TrackInfo)
-Q_DECLARE_METATYPE(sonora::AudioDeviceInfo)
-Q_DECLARE_METATYPE(sonora::ActiveOutputStatus)
+Q_DECLARE_METATYPE(virela::TrackInfo)
+Q_DECLARE_METATYPE(virela::AudioDeviceInfo)
+Q_DECLARE_METATYPE(virela::ActiveOutputStatus)

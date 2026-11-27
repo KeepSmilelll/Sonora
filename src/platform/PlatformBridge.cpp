@@ -3,7 +3,7 @@
 #include <QVariantMap>
 #include <QWindow>
 
-namespace sonora {
+namespace virela {
 
 void PlatformBridge::toggleMaximize(QWindow* window) {
     if (!window) return;
@@ -14,7 +14,7 @@ void PlatformBridge::toggleMaximize(QWindow* window) {
     }
 }
 
-} // namespace sonora
+} // namespace virela
 
 #ifdef _WIN32
 #include "platform/win32/Win32WindowHelper.h"
@@ -22,7 +22,7 @@ void PlatformBridge::toggleMaximize(QWindow* window) {
 #include "platform/win32/Win32TrayIcon.h"
 #include "platform/win32/Win32GlobalHotkey.h"
 
-namespace sonora {
+namespace virela {
 
 class Win32PlatformBridge final : public PlatformBridge {
 public:
@@ -115,11 +115,11 @@ std::unique_ptr<PlatformBridge> PlatformBridge::create(QObject* parent) {
     return std::make_unique<Win32PlatformBridge>(parent);
 }
 
-} // namespace sonora
+} // namespace virela
 
 #else
 
-namespace sonora {
+namespace virela {
 
 class StubPlatformBridge final : public PlatformBridge {
 public:
@@ -134,6 +134,6 @@ std::unique_ptr<PlatformBridge> PlatformBridge::create(QObject* parent) {
     return std::make_unique<StubPlatformBridge>(parent);
 }
 
-} // namespace sonora
+} // namespace virela
 
 #endif

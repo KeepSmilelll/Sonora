@@ -19,7 +19,7 @@ extern "C" {
 #include <libswresample/swresample.h>
 }
 
-using namespace sonora;
+using namespace virela;
 
 namespace {
 
@@ -108,8 +108,8 @@ bool writeSyntheticWav(const QString& wavPath, int freqHz, int sampleRate, doubl
 }
 
 QString resolveFfmpegExecutable() {
-#ifdef SONORA_FFMPEG_EXECUTABLE
-    const QString compiled = QStringLiteral(SONORA_FFMPEG_EXECUTABLE);
+#ifdef VIRELA_FFMPEG_EXECUTABLE
+    const QString compiled = QStringLiteral(VIRELA_FFMPEG_EXECUTABLE);
     if (QFileInfo::exists(compiled)) {
         return compiled;
     }
@@ -147,8 +147,8 @@ bool generateSyntheticAudio(const QString& outPath,
     const QString ffmpegExe = resolveFfmpegExecutable();
 #ifdef _WIN32
     QString binDir;
-#ifdef SONORA_FFMPEG_BIN_DIR
-    binDir = QStringLiteral(SONORA_FFMPEG_BIN_DIR);
+#ifdef VIRELA_FFMPEG_BIN_DIR
+    binDir = QStringLiteral(VIRELA_FFMPEG_BIN_DIR);
 #endif
     if (binDir.isEmpty()) {
         binDir = QFileInfo(ffmpegExe).absolutePath();
@@ -250,24 +250,24 @@ private slots:
                 QStringLiteral("-c:a"), QStringLiteral("flac"),
                 QStringLiteral("-sample_fmt"), QStringLiteral("s32"),
                 QStringLiteral("-metadata"), QStringLiteral("title=Nocturne"),
-                QStringLiteral("-metadata"), QStringLiteral("artist=Sonora Lab"),
+                QStringLiteral("-metadata"), QStringLiteral("artist=Virela Lab"),
                 QStringLiteral("-metadata"), QStringLiteral("album=HiRes Suite"),
                 QStringLiteral("-metadata"), QStringLiteral("REPLAYGAIN_TRACK_GAIN=-6.25 dB"),
                 QStringLiteral("-metadata"), QStringLiteral("REPLAYGAIN_TRACK_PEAK=0.950000"),
-                QStringLiteral("-metadata"), QStringLiteral("LYRICS=[00:00.50]Hello Sonora")
+                QStringLiteral("-metadata"), QStringLiteral("LYRICS=[00:00.50]Hello Virela")
             }));
 
         TrackInfo probed;
         QString err;
         QVERIFY2(FFmpegDecoder::probeFile(flacPath, probed, &err), qPrintable(err));
         QCOMPARE(probed.title, QStringLiteral("Nocturne"));
-        QCOMPARE(probed.artist, QStringLiteral("Sonora Lab"));
+        QCOMPARE(probed.artist, QStringLiteral("Virela Lab"));
         QCOMPARE(probed.codec, QStringLiteral("FLAC"));
         QCOMPARE(probed.sampleRate, 96000);
         QCOMPARE(probed.formatBadge, QStringLiteral("Hi-Res"));
         QVERIFY(probed.hasRgTrack);
         QVERIFY(std::abs(probed.rgTrackGainDb - (-6.25)) < 0.05);
-        QCOMPARE(probed.embeddedLyrics, QStringLiteral("[00:00.50]Hello Sonora"));
+        QCOMPARE(probed.embeddedLyrics, QStringLiteral("[00:00.50]Hello Virela"));
 
         // Stream-decode and verify non-silent energy & frame count
         FFmpegDecoder dec;

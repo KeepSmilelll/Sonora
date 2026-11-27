@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Effects
-import Sonora.UI
+import Virela.UI
 
 // Hover-expandable morphing desktop capsule with live single-line lyrics & mini aurora spectrum.
 // Fixed transparent HWND bounds (396x118) eliminate Win32 window resize flicker while inner capsule morphs at 60fps.
@@ -21,7 +21,7 @@ Window {
     maximumHeight: 118
     visible: true
     transientParent: null
-    title: "Sonora Mini"
+    title: "Virela Mini"
     flags: Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
     color: "transparent"
 
@@ -198,7 +198,7 @@ Window {
 
                 Text {
                     Layout.fillWidth: true
-                    text: miniWin.controller.hasTrack ? miniWin.controller.trackTitle : "Sonora"
+                    text: miniWin.controller.hasTrack ? miniWin.controller.trackTitle : "Virela"
                     elide: Text.ElideRight
                     color: DesignTokens.textPrimary
                     font.family: DesignTokens.fontFamily

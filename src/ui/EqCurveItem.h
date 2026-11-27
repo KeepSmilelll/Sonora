@@ -3,7 +3,7 @@
 #include <QColor>
 #include <QQuickItem>
 
-namespace sonora {
+namespace virela {
 
 class PlaybackEngine;
 
@@ -43,4 +43,4 @@ private:
     int revision_ = 0;
 };
 
-} // namespace sonora
+} // namespace virela

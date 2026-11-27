@@ -11,7 +11,7 @@
 
 class QWindow;
 
-namespace sonora {
+namespace virela {
 
 class Win32WindowHelper final : public QAbstractNativeEventFilter {
 public:
@@ -38,6 +38,6 @@ private:
     QVector<QRectF> interactiveRects_;
 };
 
-} // namespace sonora
+} // namespace virela
 
 #endif // _WIN32

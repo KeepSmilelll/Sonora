@@ -8,7 +8,7 @@
 #include <cmath>
 #include <vector>
 
-using namespace sonora;
+using namespace virela;
 
 namespace {
 constexpr double kTwoPi = 6.28318530717958647692;

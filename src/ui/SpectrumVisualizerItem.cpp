@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace sonora {
+namespace virela {
 
 PlaybackEngine* SpectrumVisualizerItem::sharedEngine_ = nullptr;
 
@@ -238,4 +238,4 @@ QSGNode* SpectrumVisualizerItem::updatePaintNode(QSGNode* oldNode, UpdatePaintNo
     return node;
 }
 
-} // namespace sonora
+} // namespace virela

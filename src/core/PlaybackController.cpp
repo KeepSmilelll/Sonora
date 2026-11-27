@@ -15,7 +15,7 @@
 #include <QSet>
 #include <algorithm>
 
-namespace sonora {
+namespace virela {
 
 int QueueListModel::rowCount(const QModelIndex& parent) const {
     return parent.isValid() ? 0 : static_cast<int>(tracks_.size());
@@ -116,8 +116,8 @@ PlaybackController::PlaybackController(PlaybackEngine* engine,
         emit currentTrackChanged();
         if (platform_) {
             const QString tip = track.artist.isEmpty()
-                ? QStringLiteral("Sonora — %1").arg(track.displayTitle())
-                : QStringLiteral("Sonora — %1 - %2").arg(track.displayTitle(), track.artist);
+                ? QStringLiteral("Virela — %1").arg(track.displayTitle())
+                : QStringLiteral("Virela — %1 - %2").arg(track.displayTitle(), track.artist);
             platform_->updateTrayTooltip(tip);
         }
     });
@@ -516,4 +516,4 @@ void PlaybackController::updateCoverAndAmbient(const TrackInfo& track) {
     }
 }
 
-} // namespace sonora
+} // namespace virela
