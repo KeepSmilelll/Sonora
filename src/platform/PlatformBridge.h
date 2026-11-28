@@ -34,7 +34,7 @@ public:
         emit quitRequested();
     }
 
-    // Attaches native frameless window handling (Aero Snap, shadows, DWM Mica/Acrylic)
+    // Attach native frameless window handling for Aero Snap, shadows, and window chrome.
     virtual void attachMainWindow(QWindow* window, int titleBarHeightPx = 42) = 0;
     virtual void setWindowBackdrop(QWindow* window, const QString& backdropMode, bool isDark) = 0;
     virtual void setTitleBarHeight(int heightPx) = 0;

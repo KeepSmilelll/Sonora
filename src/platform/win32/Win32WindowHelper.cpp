@@ -12,6 +12,7 @@
 #include <windowsx.h>
 #include <dwmapi.h>
 #include <shellapi.h>
+#include <algorithm>
 #include <cmath>
 
 namespace virela {
@@ -20,10 +21,9 @@ namespace {
 
 constexpr DWORD kDwmwaUseImmersiveDarkMode = 20;
 constexpr DWORD kDwmwaWindowCornerPreference = 33;
+constexpr DWORD kDwmwaBorderColor = 34;
 constexpr DWORD kDwmwaSystemBackdropType = 38;
 constexpr DWORD kDwmsbtNone = 1;
-constexpr DWORD kDwmsbtMainWindow = 2;
-constexpr DWORD kDwmsbtTransientWindow = 3;
 
 bool isWindows11OrNewer() {
     using RtlGetVersionFn = LONG(WINAPI*)(OSVERSIONINFOW*);
@@ -45,6 +45,11 @@ UINT windowDpi(HWND hwnd) {
         if (dpi > 0) return dpi;
     }
     return 96;
+}
+
+double logicalScaleForWindow(QWindow* window, HWND hwnd) {
+    return (window && window->devicePixelRatio() > 0.0)
+        ? window->devicePixelRatio() : (static_cast<double>(windowDpi(hwnd)) / 96.0);
 }
 
 void adjustForAutoHideTaskbar(HMONITOR monitor, RECT& rect) {
@@ -100,15 +105,14 @@ void Win32WindowHelper::applyWindowStyle() {
     HWND hwnd = reinterpret_cast<HWND>(hwnd_);
 
     // Replace Qt::FramelessWindowHint's WS_POPUP with overlapped resize/snap styles,
-    // and strip WS_SYSMENU so Windows 11 DWM never paints native caption buttons behind
-    // the translucent Mica/Acrylic custom TitleBar.
+    // and strip WS_SYSMENU because the app draws its own caption buttons.
     LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
     style &= ~static_cast<LONG_PTR>(WS_POPUP | WS_SYSMENU);
     style |= WS_OVERLAPPED | WS_THICKFRAME | WS_CAPTION | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
     SetWindowLongPtrW(hwnd, GWL_STYLE, style);
 
-    // Extend DWM glass frame over the entire client area so Mica/Acrylic & shadow work seamlessly
-    const MARGINS margins = {-1, -1, -1, -1};
+    // Keep a one-pixel DWM frame for the native window shadow.
+    const MARGINS margins = {0, 0, 0, 1};
     DwmExtendFrameIntoClientArea(hwnd, &margins);
 
     // Request Windows 11 rounded corners when supported
@@ -119,8 +123,8 @@ void Win32WindowHelper::applyWindowStyle() {
                  SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
-void Win32WindowHelper::setBackdrop(QWindow* window, const QString& backdropMode, bool isDark) {
-    if (!window) return;
+void Win32WindowHelper::setBackdrop(QWindow* window, const QString& /*backdropMode*/, bool isDark) {
+    if (!window || window != window_) return;
     HWND hwnd = reinterpret_cast<HWND>(static_cast<uintptr_t>(window->winId()));
     if (!hwnd) return;
 
@@ -131,13 +135,11 @@ void Win32WindowHelper::setBackdrop(QWindow* window, const QString& backdropMode
         return;
     }
 
-    DWORD backdrop = kDwmsbtNone;
-    if (backdropMode == QStringLiteral("mica")) {
-        backdrop = kDwmsbtMainWindow;
-    } else if (backdropMode == QStringLiteral("acrylic")) {
-        backdrop = kDwmsbtTransientWindow;
-    }
+    const DWORD backdrop = kDwmsbtNone;
     DwmSetWindowAttribute(hwnd, kDwmwaSystemBackdropType, &backdrop, sizeof(backdrop));
+
+    const COLORREF borderColor = isDark ? RGB(42, 46, 62) : RGB(214, 219, 230);
+    DwmSetWindowAttribute(hwnd, kDwmwaBorderColor, &borderColor, sizeof(borderColor));
 }
 
 void Win32WindowHelper::toggleMaximize(QWindow* window) {
@@ -181,20 +183,25 @@ bool Win32WindowHelper::nativeEventFilter(const QByteArray& eventType, void* mes
         HMONITOR mon = MonitorFromWindow(msg->hwnd, MONITOR_DEFAULTTONEAREST);
         MONITORINFO mi{};
         mi.cbSize = sizeof(mi);
-        if (mon && GetMonitorInfoW(mon, &mi)) {
+        const bool hasMonitorInfo = mon && GetMonitorInfoW(mon, &mi);
+        if (hasMonitorInfo) {
             mmi->ptMaxPosition.x = mi.rcWork.left - mi.rcMonitor.left;
             mmi->ptMaxPosition.y = mi.rcWork.top - mi.rcMonitor.top;
             mmi->ptMaxSize.x = mi.rcWork.right - mi.rcWork.left;
             mmi->ptMaxSize.y = mi.rcWork.bottom - mi.rcWork.top;
         }
         if (window_) {
-            const double scale = static_cast<double>(windowDpi(msg->hwnd)) / 96.0;
+            const double scale = logicalScaleForWindow(window_, msg->hwnd);
             if (window_->minimumWidth() > 0) {
                 mmi->ptMinTrackSize.x = static_cast<LONG>(std::lround(window_->minimumWidth() * scale));
             }
             if (window_->minimumHeight() > 0) {
                 mmi->ptMinTrackSize.y = static_cast<LONG>(std::lround(window_->minimumHeight() * scale));
             }
+        }
+        if (hasMonitorInfo) {
+            mmi->ptMinTrackSize.x = std::min(mmi->ptMinTrackSize.x, mmi->ptMaxSize.x);
+            mmi->ptMinTrackSize.y = std::min(mmi->ptMinTrackSize.y, mmi->ptMaxSize.y);
         }
         if (result) *result = 0;
         return true;
@@ -229,10 +236,10 @@ bool Win32WindowHelper::nativeEventFilter(const QByteArray& eventType, void* mes
         GetWindowRect(msg->hwnd, &winRect);
         const int x = GET_X_LPARAM(msg->lParam);
         const int y = GET_Y_LPARAM(msg->lParam);
-        const double scale = static_cast<double>(windowDpi(msg->hwnd)) / 96.0;
-        const int borderX = static_cast<int>(std::lround(6.0 * scale));
-        const int borderTop = static_cast<int>(std::lround(5.0 * scale));
-        const int borderBottom = static_cast<int>(std::lround(6.0 * scale));
+        const double dpiScale = static_cast<double>(windowDpi(msg->hwnd)) / 96.0;
+        const int borderX = static_cast<int>(std::lround(6.0 * dpiScale));
+        const int borderTop = static_cast<int>(std::lround(5.0 * dpiScale));
+        const int borderBottom = static_cast<int>(std::lround(6.0 * dpiScale));
 
         if (!IsZoomed(msg->hwnd)) {
             const bool left = x < winRect.left + borderX;
@@ -256,8 +263,9 @@ bool Win32WindowHelper::nativeEventFilter(const QByteArray& eventType, void* mes
         if (titleBarDragEnabled_) {
             POINT clientPt{x, y};
             ScreenToClient(msg->hwnd, &clientPt);
-            const double lx = static_cast<double>(clientPt.x) / scale;
-            const double ly = static_cast<double>(clientPt.y) / scale;
+            const double logicalScale = logicalScaleForWindow(window_, msg->hwnd);
+            const double lx = static_cast<double>(clientPt.x) / logicalScale;
+            const double ly = static_cast<double>(clientPt.y) / logicalScale;
             if (ly >= 0.0 && ly < static_cast<double>(titleBarHeightPx_)) {
                 bool onInteractive = false;
                 for (const QRectF& r : interactiveRects_) {

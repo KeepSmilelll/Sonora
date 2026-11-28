@@ -83,35 +83,12 @@ Item {
         && lyricsCtrl.hasEnhancedWords ? lyricsCtrl.effectivePositionMs : 0
 
     // Deterministic closed-form circular vinyl geometry shared by QML items & HeroTransitionLayer
-    function computeRailCoverGeometry(stageW) {
-        const art = Math.round(Math.max(124, Math.min(196, stageW - 76)))
-        return {
-            x: Math.round((stageW - art) * 0.5),
-            y: 64,
-            width: art,
-            height: art,
-            radius: art * 0.5
-        }
+    function computeRailCoverGeometry(stageW, stageH) {
+        return DesignTokens.computeRailCoverGeometry(stageW, stageH)
     }
 
     function computeImmersiveCoverGeometry(stageW, stageH, vizEnabled) {
-        const bodyW = Math.max(300, stageW - 32)
-        const bodyH = Math.max(240, stageH - 72)
-        const leftColW = Math.round(Math.max(296, Math.min(430, bodyW * 0.39)))
-        const controlsH = 66 + 36 + (vizEnabled ? 44 : 0) + 46 + 52 + 42
-        const art = Math.round(Math.max(168, Math.min(308, leftColW - 56, bodyH - controlsH - 24)))
-        const groupH = art + controlsH
-        const groupY = Math.max(6, Math.round((bodyH - groupH) * 0.45))
-        return {
-            leftColW: leftColW,
-            groupH: groupH,
-            groupY: groupY,
-            x: 16 + Math.round((leftColW - art) * 0.5),
-            y: 56 + groupY,
-            width: art,
-            height: art,
-            radius: art * 0.5
-        }
+        return DesignTokens.computeImmersiveCoverGeometry(stageW, stageH, vizEnabled)
     }
 
     component ImmIconBtn: Item {
@@ -201,7 +178,7 @@ Item {
             return { x: g.x, y: g.y, width: g.width, height: g.height, radius: g.radius }
         }
         const stageW = Math.min(railTargetW, Math.max(DesignTokens.stageMinWidth, workspaceW * 0.42))
-        const rg = computeRailCoverGeometry(stageW)
+        const rg = computeRailCoverGeometry(stageW, workspaceH)
         return {
             x: Math.round(workspaceW - stageW + rg.x),
             y: rg.y,
@@ -520,13 +497,13 @@ Item {
             opacity: Math.max(0.0, 1.0 - root.immersiveFactor * 1.45)
             visible: opacity > 0.01 && root.stageMode !== "immersive"
 
-            readonly property var coverGeom: root.computeRailCoverGeometry(root.width)
+            readonly property var coverGeom: DesignTokens.computeRailCoverGeometry(root.width, root.height)
 
             // Rail Spinning Circular Vinyl LP (deterministic x/y matching computeRailCoverGeometry)
             Item {
                 id: railCoverBox
-                x: Math.round((railView.width - width) * 0.5)
-                y: 8
+                x: railView.coverGeom.x - bodyArea.x
+                y: railView.coverGeom.y - bodyArea.y
                 width: railView.coverGeom.width
                 height: railView.coverGeom.height
                 opacity: root.hideCoverForHero ? 0.0 : root.artSwitchOpacity
@@ -581,7 +558,7 @@ Item {
             ColumnLayout {
                 id: railMetaCol
                 anchors.top: railCoverBox.bottom
-                anchors.topMargin: 12
+                anchors.topMargin: root.height < 540 ? 8 : 12
                 anchors.left: parent.left
                 anchors.right: parent.right
                 spacing: 5
@@ -687,7 +664,7 @@ Item {
                     Layout.alignment: Qt.AlignHCenter
                     Layout.topMargin: 4
                     Layout.preferredWidth: Math.min(200, railView.width - 32)
-                    Layout.preferredHeight: 24
+                    Layout.preferredHeight: root.height < 540 ? 18 : 24
                     styleMode: "aurora"
                     visible: root.settingsObj.visualizerEnabled && root.controller.hasTrack
                     accentColor: DesignTokens.accent
@@ -700,7 +677,7 @@ Item {
             Rectangle {
                 id: railDivider
                 anchors.top: railMetaCol.bottom
-                anchors.topMargin: 10
+                anchors.topMargin: root.height < 540 ? 8 : 10
                 anchors.left: parent.left
                 anchors.right: parent.right
                 height: 1
@@ -1125,18 +1102,18 @@ Item {
             opacity: Math.max(0.0, (root.immersiveFactor - 0.18) / 0.82)
             visible: opacity > 0.01
 
-            readonly property var immGeom: root.computeImmersiveCoverGeometry(
+            readonly property var immGeom: DesignTokens.computeImmersiveCoverGeometry(
                 root.width, root.height, Boolean(root.settingsObj && root.settingsObj.visualizerEnabled))
 
             // Left Column: Hero Artwork + Typography + Spectrum + Integrated Borderless Control Tower
             Item {
                 id: immLeftCol
-                anchors.left: parent.left
+                x: immersiveView.immGeom.contentOffsetX
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
                 width: immersiveView.immGeom.leftColW
 
-                readonly property real ctrlW: Math.round(Math.max(248, Math.min(316, immLeftCol.width - 40)))
+                readonly property real ctrlW: Math.round(Math.max(248, Math.min(372, immLeftCol.width - 40)))
 
                 // Subtle soft ambient circular halo behind spinning vinyl LP
                 Rectangle {
@@ -1589,6 +1566,9 @@ Item {
                         from: 0.0
                         to: 1.0
                         value: root.controller.muted ? 0.0 : root.controller.volume
+                        valueControlled: true
+                        showValueTooltip: true
+                        valueTooltipText: Math.round((root.controller.muted ? 0.0 : root.controller.volume) * 100) + "%"
                         accentColor: DesignTokens.accent
                         onMoved: (v) => {
                             root.controller.muted = false
@@ -1602,10 +1582,10 @@ Item {
             Item {
                 id: immRightCol
                 anchors.left: immLeftCol.right
-                anchors.leftMargin: 20
-                anchors.right: parent.right
+                anchors.leftMargin: root.width >= 1520 ? 32 : 20
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
+                width: Math.max(240, immersiveView.immGeom.contentW - immersiveView.immGeom.leftColW - anchors.leftMargin)
 
                 // Borderless Synced Lyrics Viewport with Distance Depth Attenuation
                 ListView {
@@ -1738,7 +1718,7 @@ Item {
                                             color: wordSlot.fillRatio >= 1 ? DesignTokens.textPrimary : DesignTokens.textSecondary
                                             opacity: wordSlot.fillRatio >= 1 ? 1 : 0.40
                                             font.family: DesignTokens.fontFamily
-                                            font.pixelSize: root.width < 990 ? 25 : 30
+                                            font.pixelSize: root.width >= 1680 ? 34 : (root.width < 990 ? 24 : 30)
                                             font.weight: Font.Bold
                                         }
 
@@ -1773,7 +1753,9 @@ Item {
                                 color: ilRow.isActive ? DesignTokens.textPrimary : DesignTokens.textSecondary
                                 opacity: ilRow.isActive ? 1.0 : ilRow.depthOpacity
                                 font.family: DesignTokens.fontFamily
-                                font.pixelSize: ilRow.isActive ? (root.width < 990 ? 25 : 30) : 22
+                                font.pixelSize: ilRow.isActive
+                                    ? (root.width >= 1680 ? 34 : (root.width < 990 ? 24 : 30))
+                                    : (root.width >= 1680 ? 24 : (root.width < 990 ? 19 : 22))
                                 font.weight: ilRow.isActive ? Font.Bold : Font.Medium
                                 Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                 Behavior on color { ColorAnimation { duration: 220 } }
@@ -1788,7 +1770,7 @@ Item {
                                 color: ilRow.isActive ? DesignTokens.textSecondary : DesignTokens.textTertiary
                                 opacity: ilRow.isActive ? 0.94 : ilRow.depthOpacity * 0.78
                                 font.family: DesignTokens.fontFamily
-                                font.pixelSize: 15
+                                font.pixelSize: root.width >= 1680 ? 16 : 14
                                 font.weight: Font.Medium
                                 Behavior on opacity { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
                             }

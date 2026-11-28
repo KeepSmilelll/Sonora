@@ -11,6 +11,10 @@ Item {
     required property var lib
     property var heroLayer: null
     property bool embedded: false
+    readonly property real _dpr: Math.max(1.0, Math.min(2.0, root.Screen.devicePixelRatio || 1.0))
+    readonly property int targetCardWidth: width >= 1900 ? 226 : (width >= 1560 ? 210 : (width >= 1120 ? 194 : 180))
+    readonly property int cardCoverPx: Math.min(320, Math.round(200 * _dpr))
+    readonly property int outerMargin: embedded ? 0 : (width < 680 ? 16 : (width >= 1560 ? 26 : 22))
 
     property bool inDetail: false
     property string selectedAlbum: ""
@@ -52,8 +56,8 @@ Item {
         id: gridPane
         visible: !root.inDetail
         anchors.fill: parent
-        anchors.margins: root.embedded ? 0 : 22
-        anchors.topMargin: root.embedded ? 2 : 22
+        anchors.margins: root.outerMargin
+        anchors.topMargin: root.embedded ? 2 : root.outerMargin
         transform: Translate { id: gridShift; x: 0 }
 
         ColumnLayout {
@@ -102,8 +106,8 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            readonly property int columns: Math.max(2, Math.floor((Math.max(360, width) - 8) / 188))
-            cellWidth: Math.floor((Math.max(360, width) - 8) / columns)
+            readonly property int columns: Math.max(1, Math.floor(width / root.targetCardWidth))
+            cellWidth: Math.max(1, Math.floor(width / columns))
             cellHeight: cellWidth + 56
             cacheBuffer: 360
             boundsBehavior: Flickable.StopAtBounds
@@ -161,14 +165,15 @@ Item {
                                 anchors.fill: parent
                                 radius: DesignTokens.radiusMd
                                 visible: false
-                                layer.enabled: true
+                                layer.enabled: gridCoverImg.status === Image.Ready
                                 layer.smooth: true
                             }
 
                             Image {
                                 id: gridCoverImg
                                 anchors.fill: parent
-                                source: card.coverHash.length > 0 ? ("image://cover/" + card.coverHash + "?size=280") : ""
+                                source: card.coverHash.length > 0 ? ("image://cover/" + card.coverHash) : ""
+                                sourceSize: Qt.size(root.cardCoverPx, root.cardCoverPx)
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
                                 cache: false
@@ -294,8 +299,8 @@ Item {
                                     width: coverBox.width,
                                     height: coverBox.height
                                 }
-                                const mx = root.embedded ? 0 : 22
-                                const my = root.embedded ? 2 : 22
+                                const mx = detailPane.anchors.margins
+                                const my = detailPane.anchors.topMargin
                                 const destPt = root.mapToItem(root.heroLayer, mx + 14, my + 30 + 14 + 14)
                                 root.heroLayer.startHero({
                                     tag: "album-cover",
@@ -349,8 +354,8 @@ Item {
         id: detailPane
         visible: root.inDetail
         anchors.fill: parent
-        anchors.margins: root.embedded ? 0 : 22
-        anchors.topMargin: root.embedded ? 2 : 22
+        anchors.margins: root.outerMargin
+        anchors.topMargin: root.embedded ? 2 : root.outerMargin
         spacing: 14
 
         RowLayout {
@@ -421,7 +426,7 @@ Item {
                 Behavior on opacity { NumberAnimation { duration: 180 } }
             }
 
-            // Exact deterministic Hero landing box at (14, 14) in detailHeroHeader -> (36, 80) in root
+            // The Hero landing calculation uses this offset within the detail header.
             Rectangle {
                 id: detailCoverBox
                 x: 14
@@ -440,7 +445,7 @@ Item {
                     anchors.fill: parent
                     radius: DesignTokens.radiusLg
                     visible: false
-                    layer.enabled: true
+                    layer.enabled: detailCoverImg.status === Image.Ready
                     layer.smooth: true
                 }
 

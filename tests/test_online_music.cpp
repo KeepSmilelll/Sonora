@@ -4,6 +4,7 @@
 #include "core/AppSettings.h"
 #include "core/PlaybackController.h"
 #include "core/ThemeManager.h"
+#include "core/WindowLayout.h"
 #include "library/CoverArtProvider.h"
 #include "library/LibraryDatabase.h"
 #include "library/LibraryScanner.h"
@@ -406,6 +407,33 @@ class TestOnlineMusic : public QObject {
     Q_OBJECT
 
 private slots:
+    void testInitialWindowGeometryFor1080pAnd1440pScales() {
+        const auto verify = [](const QRect& work, const QSize& expectedSize,
+                               const QSize& expectedMinimum = QSize(840, 560)) {
+            const auto initial = computeInitialWindowGeometry(work);
+            QCOMPARE(initial.geometry.size(), expectedSize);
+            QCOMPARE(initial.minimumSize, expectedMinimum);
+            QVERIFY(work.contains(initial.geometry));
+            QVERIFY(initial.geometry.left() > work.left());
+            QVERIFY(initial.geometry.top() > work.top());
+            QVERIFY(initial.geometry.right() < work.right());
+            QVERIFY(initial.geometry.bottom() < work.bottom());
+            QCOMPARE(initial.geometry.x(), work.x() + (work.width() - expectedSize.width()) / 2);
+            QCOMPARE(initial.geometry.y(), work.y() + (work.height() - expectedSize.height()) / 2);
+        };
+
+        verify(QRect(0, 0, 1920, 1032), QSize(1440, 867));
+        verify(QRect(0, 0, 1536, 816), QSize(1180, 685));
+        verify(QRect(0, 0, 1280, 672), QSize(1180, 628));
+        verify(QRect(0, 0, 2560, 1392), QSize(1560, 940));
+        verify(QRect(0, 0, 2048, 1104), QSize(1536, 927));
+        verify(QRect(0, 0, 1707, 912), QSize(1280, 766));
+        verify(QRect(1920, 0, 1536, 816), QSize(1180, 685));
+        verify(QRect(0, 0, 800, 520), QSize(768, 484), QSize(768, 484));
+        QCOMPARE(computeInitialWindowGeometry(QRect()).geometry,
+                 computeInitialWindowGeometry(QRect(0, 0, 1280, 720)).geometry);
+    }
+
     void settingsDefaultsAndPersistence() {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
@@ -413,6 +441,7 @@ private slots:
 
         {
             AppSettings s(cfgPath);
+            QCOMPARE(s.backdropMode(), QStringLiteral("ambient"));
             // Zero hardcoded public third-party URLs
             QVERIFY(s.onlineNeteaseApiUrl().isEmpty());
             QVERIFY(s.onlineMetingApiUrl().isEmpty());
@@ -427,11 +456,14 @@ private slots:
             QVERIFY(s.onlineNeteaseServiceDir().isEmpty());
             QVERIFY(s.onlineMetingServiceDir().isEmpty());
 
+            s.setBackdropMode(QStringLiteral("solid"));
             s.setOnlineNeteaseApiUrl(QStringLiteral("http://127.0.0.1:3000///"));
             s.setOnlineMetingApiUrl(QStringLiteral("http://127.0.0.1:3001/api"));
             s.setOnlineDirectUrlPriority(QStringLiteral("meting"));
             s.setOnlineAutoFallback(false);
             s.setOnlineUnblockTrialFallback(false);
+            QVERIFY(s.onlineAutoFallback());
+            QVERIFY(s.onlineUnblockTrialFallback());
             s.setOnlineAudioQuality(QStringLiteral("hires"));
             s.setOnlineCookie(QStringLiteral("MUSIC_U=abc123"));
             s.setOnlineCacheMaxMb(2048);
@@ -442,11 +474,12 @@ private slots:
         }
 
         AppSettings reloaded(cfgPath);
+        QCOMPARE(reloaded.backdropMode(), QStringLiteral("solid"));
+        QVERIFY(reloaded.onlineAutoFallback());
+        QVERIFY(reloaded.onlineUnblockTrialFallback());
         QCOMPARE(reloaded.onlineNeteaseApiUrl(), QStringLiteral("http://127.0.0.1:3000"));
         QCOMPARE(reloaded.onlineMetingApiUrl(), QStringLiteral("http://127.0.0.1:3001/api"));
         QCOMPARE(reloaded.onlineDirectUrlPriority(), QStringLiteral("meting"));
-        QVERIFY(!reloaded.onlineAutoFallback());
-        QVERIFY(!reloaded.onlineUnblockTrialFallback());
         QCOMPARE(reloaded.onlineAudioQuality(), QStringLiteral("hires"));
         QCOMPARE(reloaded.onlineCookie(), QStringLiteral("MUSIC_U=abc123"));
         QCOMPARE(reloaded.onlineCacheMaxMb(), 2048);
@@ -454,6 +487,28 @@ private slots:
         QVERIFY(reloaded.onlineAutoStartLocalServices());
         QCOMPARE(reloaded.onlineNeteaseServiceDir(), QDir::cleanPath(dir.filePath(QStringLiteral("ncm"))));
         QCOMPARE(reloaded.onlineMetingServiceDir(), QDir::cleanPath(dir.filePath(QStringLiteral("met"))));
+
+        QFile config(cfgPath);
+        QVERIFY(config.open(QIODevice::ReadOnly));
+        QJsonObject legacyConfig = QJsonDocument::fromJson(config.readAll()).object();
+        config.close();
+        legacyConfig.insert(QStringLiteral("onlineAutoFallback"), false);
+        legacyConfig.insert(QStringLiteral("onlineUnblockTrialFallback"), false);
+
+        const QStringList legacyModes = {QStringLiteral("frosted"), QStringLiteral("mica"),
+                                         QStringLiteral("acrylic"), QStringLiteral("mica_alt")};
+        for (const auto& mode : legacyModes) {
+            legacyConfig.insert(QStringLiteral("backdropMode"), mode);
+            QVERIFY(config.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            const QByteArray legacyJson = QJsonDocument(legacyConfig).toJson();
+            QCOMPARE(config.write(legacyJson), legacyJson.size());
+            config.close();
+
+            AppSettings legacy(cfgPath);
+            QCOMPARE(legacy.backdropMode(), QStringLiteral("ambient"));
+            QVERIFY(legacy.onlineAutoFallback());
+            QVERIFY(legacy.onlineUnblockTrialFallback());
+        }
     }
 
     void searchCanLeavePlaylistDetailAndClearResults() {
@@ -694,11 +749,13 @@ private slots:
         QCOMPARE(r4.codecHint, QStringLiteral("mp3"));
         QCOMPARE(r4.streamUrl, QStringLiteral("http://127.0.0.1:9/unblocked.mp3"));
 
-        // When onlineUnblockTrialFallback is disabled, /song/url/match is skipped -> falls back to Meting
+        // Trial and copyright matching remains enabled after a legacy setter call.
         settings.setOnlineUnblockTrialFallback(false);
         const ResolvedStreamInfo r5 = svc.resolveStreamBlocking(songs.first());
         QVERIFY(r5.ok);
-        QCOMPARE(r5.backendUsed, QStringLiteral("meting"));
+        QCOMPARE(r5.backendUsed, QStringLiteral("netease-match"));
+        QVERIFY(!r5.isTrial);
+        QCOMPARE(r5.streamUrl, QStringLiteral("http://127.0.0.1:9/unblocked.mp3"));
     }
 
     void onlineLyricsYrcWithTlyricAndSidecarRoundTrip() {

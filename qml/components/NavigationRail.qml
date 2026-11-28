@@ -2,11 +2,13 @@ import QtQuick
 import QtQuick.Layouts
 import Virela.UI
 
-// Floating collapsible spatial navigation rail (60px icon rail <-> 212px expanded unified navigation)
+// Floating navigation rail with icon-only and expanded layouts.
 Item {
     id: root
 
     property bool expanded: false
+    property int expandedWidth: DesignTokens.railExpandedWidth
+    property bool compactDensity: false
     property string activeSection: "online"
     property var customPlaylists: []
     property var pinnedPlaylists: []
@@ -34,7 +36,7 @@ Item {
     signal importM3uRequested()
     signal toggleExpandedRequested()
 
-    implicitWidth: expanded ? DesignTokens.railExpandedWidth : DesignTokens.railCollapsedWidth
+    implicitWidth: expanded ? root.expandedWidth : DesignTokens.railCollapsedWidth
     clip: false
 
     Behavior on implicitWidth {
@@ -63,7 +65,7 @@ Item {
         signal activated()
 
         Layout.fillWidth: true
-        implicitHeight: 36
+        implicitHeight: root.compactDensity ? 33 : 36
         radius: DesignTokens.radiusMd
         color: !selected && ma.containsMouse ? DesignTokens.surfaceHover : "transparent"
         Behavior on color { ColorAnimation { duration: 130 } }
@@ -240,9 +242,9 @@ Item {
             anchors.fill: parent
             anchors.leftMargin: 9
             anchors.rightMargin: 9
-            anchors.topMargin: 12
-            anchors.bottomMargin: 12
-            spacing: 3
+            anchors.topMargin: root.compactDensity ? 9 : 12
+            anchors.bottomMargin: root.compactDensity ? 9 : 12
+            spacing: root.compactDensity ? 2 : 3
             z: 2
 
             // Group 1: DISCOVER
@@ -378,7 +380,7 @@ Item {
                     id: plDel
                     required property var modelData
                     width: ListView.view ? ListView.view.width : 190
-                    height: 34
+                    height: root.compactDensity ? 31 : 34
                     radius: DesignTokens.radiusMd
                     readonly property bool isSel: root.activeSection === "playlist" && root.activePlaylistId === modelData.id
 
@@ -465,7 +467,7 @@ Item {
                             readonly property bool isSel: root.activeSection === "online"
                                 && root.activePinnedRemoteId === (modelData.remoteId || "")
                             width: ListView.view ? ListView.view.width : 190
-                            height: 34
+                            height: root.compactDensity ? 31 : 34
                             radius: DesignTokens.radiusMd
                             color: isSel
                                 ? DesignTokens.surfaceSelected
@@ -568,9 +570,12 @@ Item {
     // Floating hover tooltip when rail is collapsed
     GlassPanel {
         id: hoverTooltipPill
+        property string displayedTooltip: ""
         readonly property bool shown: !root.expanded && root.hoveredNavItem !== null && root.hoveredTooltip.length > 0
         visible: opacity > 0.01
         opacity: shown ? 1.0 : 0.0
+        scale: shown ? 1.0 : 0.92
+        transformOrigin: Item.Left
         z: 90
         elevated: true
         shadowEnabled: true
@@ -580,12 +585,39 @@ Item {
         width: tooltipLabel.implicitWidth + 20
         height: 28
 
-        Behavior on opacity { NumberAnimation { duration: 120 } }
+        transform: Translate {
+            x: hoverTooltipPill.shown ? 0 : -6
+            Behavior on x { NumberAnimation { duration: 180; easing.type: Easing.OutQuint } }
+        }
+
+        Behavior on opacity {
+            NumberAnimation {
+                duration: hoverTooltipPill.shown ? 160 : 120
+                easing.type: hoverTooltipPill.shown ? Easing.OutCubic : Easing.InCubic
+            }
+        }
+        Behavior on scale { NumberAnimation { duration: 170; easing.type: Easing.OutCubic } }
+        Behavior on y {
+            enabled: hoverTooltipPill.opacity > 0.25
+            NumberAnimation { duration: 150; easing.type: Easing.OutQuint }
+        }
+
+        onShownChanged: if (shown) displayedTooltip = root.hoveredTooltip
+        onOpacityChanged: if (opacity <= 0.01 && !shown) displayedTooltip = ""
+
+        Connections {
+            target: root
+            function onHoveredTooltipChanged() {
+                if (hoverTooltipPill.shown && root.hoveredTooltip.length > 0) {
+                    hoverTooltipPill.displayedTooltip = root.hoveredTooltip
+                }
+            }
+        }
 
         Text {
             id: tooltipLabel
             anchors.centerIn: parent
-            text: root.hoveredTooltip
+            text: hoverTooltipPill.displayedTooltip
             color: DesignTokens.textPrimary
             font.family: DesignTokens.fontFamily
             font.pixelSize: 12

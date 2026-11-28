@@ -22,13 +22,13 @@ Item {
 
     RowLayout {
         anchors.fill: parent
-        anchors.margins: root.embedded ? 0 : 22
-        anchors.topMargin: root.embedded ? 4 : 22
+        anchors.margins: root.embedded ? 0 : (root.width < 680 ? 16 : (root.width >= 1560 ? 26 : 22))
+        anchors.topMargin: root.embedded ? 4 : anchors.margins
         spacing: 16
 
         // Left Spatial Glass Artist Rail
         GlassPanel {
-            Layout.preferredWidth: 258
+            Layout.preferredWidth: Math.round(Math.max(200, Math.min(340, root.width * 0.24)))
             Layout.fillHeight: true
             radius: DesignTokens.radiusLg
             panelColor: DesignTokens.stageSurfaceBg

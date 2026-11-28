@@ -33,7 +33,7 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 22
+        anchors.margins: root.width < 680 ? 16 : (root.width >= 1560 ? 26 : 22)
         spacing: 14
 
         // Header Bar
@@ -42,6 +42,8 @@ Item {
             spacing: 10
 
             Text {
+                Layout.minimumWidth: 0
+                elide: Text.ElideRight
                 text: qsTr("Downloads & Cache")
                 color: DesignTokens.textPrimary
                 font.family: DesignTokens.fontFamily
@@ -56,7 +58,7 @@ Item {
             }
 
             FormatBadge {
-                visible: root.onlineCtrl.cacheUsageText.length > 0
+                visible: !root.compact && root.onlineCtrl.cacheUsageText.length > 0
                 text: root.onlineCtrl.cacheUsageText
             }
 

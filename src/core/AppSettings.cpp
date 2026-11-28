@@ -12,6 +12,14 @@
 
 namespace virela {
 
+namespace {
+
+QString validatedBackdropMode(const QString& mode) {
+    return mode == QStringLiteral("solid") ? QStringLiteral("solid") : QStringLiteral("ambient");
+}
+
+} // namespace
+
 QString AppSettings::defaultDataDir() {
     QString base = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
     if (base.isEmpty()) {
@@ -52,7 +60,7 @@ void AppSettings::load() {
     const QJsonObject obj = doc.object();
 
     themeMode_ = obj.value(QStringLiteral("themeMode")).toString(themeMode_);
-    backdropMode_ = obj.value(QStringLiteral("backdropMode")).toString(backdropMode_);
+    backdropMode_ = validatedBackdropMode(obj.value(QStringLiteral("backdropMode")).toString());
     language_ = obj.value(QStringLiteral("language")).toString(language_);
     volume_ = std::clamp(obj.value(QStringLiteral("volume")).toDouble(volume_), 0.0, 1.0);
     shuffle_ = obj.value(QStringLiteral("shuffle")).toBool(shuffle_);
@@ -99,8 +107,8 @@ void AppSettings::load() {
     onlineMetingApiUrl_ = obj.value(QStringLiteral("onlineMetingApiUrl")).toString().trimmed();
     const QString prio = obj.value(QStringLiteral("onlineDirectUrlPriority")).toString(onlineDirectUrlPriority_);
     onlineDirectUrlPriority_ = (prio == QStringLiteral("meting")) ? QStringLiteral("meting") : QStringLiteral("netease");
-    onlineAutoFallback_ = obj.value(QStringLiteral("onlineAutoFallback")).toBool(onlineAutoFallback_);
-    onlineUnblockTrialFallback_ = obj.value(QStringLiteral("onlineUnblockTrialFallback")).toBool(onlineUnblockTrialFallback_);
+    onlineAutoFallback_ = true;
+    onlineUnblockTrialFallback_ = true;
     const QString qual = obj.value(QStringLiteral("onlineAudioQuality")).toString(onlineAudioQuality_);
     if (qual == QStringLiteral("standard") || qual == QStringLiteral("exhigh")
         || qual == QStringLiteral("lossless") || qual == QStringLiteral("hires")) {
@@ -190,8 +198,9 @@ void AppSettings::setThemeMode(const QString& mode) {
 }
 
 void AppSettings::setBackdropMode(const QString& mode) {
-    if (backdropMode_ == mode) return;
-    backdropMode_ = mode;
+    const QString validatedMode = validatedBackdropMode(mode);
+    if (backdropMode_ == validatedMode) return;
+    backdropMode_ = validatedMode;
     save();
     emit backdropModeChanged();
 }
@@ -402,18 +411,12 @@ void AppSettings::setOnlineDirectUrlPriority(const QString& priority) {
     emit onlineSettingsChanged();
 }
 
-void AppSettings::setOnlineAutoFallback(bool enabled) {
-    if (onlineAutoFallback_ == enabled) return;
-    onlineAutoFallback_ = enabled;
-    save();
-    emit onlineSettingsChanged();
+void AppSettings::setOnlineAutoFallback(bool /*enabled*/) {
+    onlineAutoFallback_ = true;
 }
 
-void AppSettings::setOnlineUnblockTrialFallback(bool enabled) {
-    if (onlineUnblockTrialFallback_ == enabled) return;
-    onlineUnblockTrialFallback_ = enabled;
-    save();
-    emit onlineSettingsChanged();
+void AppSettings::setOnlineUnblockTrialFallback(bool /*enabled*/) {
+    onlineUnblockTrialFallback_ = true;
 }
 
 void AppSettings::setOnlineAudioQuality(const QString& quality) {

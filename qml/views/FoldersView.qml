@@ -13,8 +13,8 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: root.embedded ? 0 : 22
-        anchors.topMargin: root.embedded ? 4 : 22
+        anchors.margins: root.embedded ? 0 : (root.width < 680 ? 16 : (root.width >= 1560 ? 26 : 22))
+        anchors.topMargin: root.embedded ? 4 : anchors.margins
         spacing: 14
 
         RowLayout {
@@ -40,7 +40,7 @@ Item {
 
             Rectangle {
                 Layout.fillWidth: true
-                Layout.maximumWidth: 520
+                Layout.maximumWidth: Math.min(760, Math.max(220, Math.round(root.width * 0.56)))
                 implicitHeight: 28
                 radius: 14
                 color: DesignTokens.surfaceInput
@@ -204,7 +204,8 @@ Item {
                     }
 
                     Text {
-                        Layout.preferredWidth: 165
+                        visible: root.width >= 540
+                        Layout.preferredWidth: Math.min(260, Math.max(110, Math.round(root.width * 0.20)))
                         text: ftRow.artist
                         elide: Text.ElideRight
                         color: DesignTokens.textSecondary

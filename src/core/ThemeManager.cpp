@@ -129,8 +129,7 @@ void ThemeManager::setBackdropMode(const QString& mode) {
 }
 
 bool ThemeManager::nativeBackdropActive() const {
-    const QString m = backdropMode();
-    return nativeBackdropSupported_ && (m == QStringLiteral("mica") || m == QStringLiteral("acrylic"));
+    return false;
 }
 
 QString ThemeManager::language() const {

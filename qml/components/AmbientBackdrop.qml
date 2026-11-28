@@ -11,25 +11,11 @@ Item {
     property real audioEnergy: 0.0
 
     readonly property bool isSolid: DesignTokens.backdropMode === "solid"
-    readonly property real auroraIntensity: {
-        if (isSolid) return 0.0
-        if (DesignTokens.nativeBackdropActive) {
-            return 0.34 + 0.58 * root.immersiveFactor
-        }
-        return 0.72 + 0.24 * root.immersiveFactor
-    }
 
     Rectangle {
         anchors.fill: parent
-        color: {
-            if (DesignTokens.nativeBackdropActive) {
-                const bg = DesignTokens.solidWindowBg
-                const alpha = 0.08 + 0.78 * root.immersiveFactor
-                return Qt.rgba(bg.r, bg.g, bg.b, alpha)
-            }
-            return DesignTokens.solidWindowBg
-        }
-        Behavior on color { ColorAnimation { duration: DesignTokens.animNormal } }
+        color: DesignTokens.solidWindowBg
+        Behavior on color { ColorAnimation { duration: 280; easing.type: Easing.OutCubic } }
     }
 
     FluidAuroraItem {
@@ -37,15 +23,15 @@ Item {
         primaryColor: DesignTokens.ambientPrimary
         secondaryColor: DesignTokens.ambientSecondary
         accentColor: DesignTokens.accent
-        baseColor: DesignTokens.nativeBackdropActive
-            ? Qt.rgba(DesignTokens.solidWindowBg.r, DesignTokens.solidWindowBg.g, DesignTokens.solidWindowBg.b,
-                      0.12 + 0.76 * root.immersiveFactor)
-            : DesignTokens.solidWindowBg
+        baseColor: DesignTokens.solidWindowBg
         darkMode: DesignTokens.isDark
-        active: root.visible && !root.isSolid
+        active: root.visible && (!root.isSolid || intensity > 0.0)
         playing: root.playing
-        intensity: root.auroraIntensity
+        intensity: root.isSolid ? 0.0 : (0.72 + 0.24 * root.immersiveFactor)
         immersiveFactor: root.immersiveFactor
         audioEnergy: root.audioEnergy
+
+        Behavior on baseColor { ColorAnimation { duration: 280; easing.type: Easing.OutCubic } }
+        Behavior on intensity { NumberAnimation { duration: 280; easing.type: Easing.OutCubic } }
     }
 }

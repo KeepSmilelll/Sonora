@@ -139,8 +139,8 @@ void OnlineMusicService::syncConfigSnapshot() {
     cfg_.neteaseUrl = normalizeBaseUrl(settings_->onlineNeteaseApiUrl());
     cfg_.metingUrl = settings_->onlineMetingApiUrl().trimmed();
     cfg_.priority = settings_->onlineDirectUrlPriority();
-    cfg_.autoFallback = settings_->onlineAutoFallback();
-    cfg_.unblockTrialFallback = settings_->onlineUnblockTrialFallback();
+    cfg_.autoFallback = true;
+    cfg_.unblockTrialFallback = true;
     cfg_.quality = settings_->onlineAudioQuality();
     cfg_.cookie = settings_->onlineCookie().trimmed();
 }

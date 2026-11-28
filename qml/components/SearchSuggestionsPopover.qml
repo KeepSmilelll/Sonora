@@ -11,6 +11,7 @@ Item {
     property string query: ""
     property bool onlineConfigured: false
     property string playlistLinkId: ""
+    property int bottomClearance: DesignTokens.dockClearance
     property var localResults: ({ totalTracks: 0, tracks: [], albums: [], artists: [] })
     property var anchorRect: ({ x: 200, y: 7, width: 460, height: 32 })
 
@@ -42,11 +43,12 @@ Item {
 
     GlassPanel {
         id: panel
-        readonly property real targetW: Math.max(400, Math.min(parent.width - 32, Math.max(root.anchorRect.width + 60, 500)))
+        readonly property real targetW: Math.max(360, Math.min(parent.width - 32,
+            Math.max(root.anchorRect.width + 48, Math.min(680, root.anchorRect.width + 64))))
         x: Math.max(16, Math.min(parent.width - width - 16, Math.round(root.anchorRect.x + (root.anchorRect.width - width) * 0.5)))
         y: Math.round(root.anchorRect.y + root.anchorRect.height + 8)
         width: targetW
-        height: Math.min(430, scrollView.contentHeight + 16)
+        height: Math.min(Math.max(220, parent.height - y - root.bottomClearance - 12), 460, scrollView.contentHeight + 16)
         radius: DesignTokens.radiusLg
         elevated: true
         shadowEnabled: true

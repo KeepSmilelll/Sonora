@@ -85,6 +85,7 @@ set(VIRELA_CORE_SOURCES
     src/core/AppSettings.h
     src/core/AppSettings.cpp
     src/core/MemoryStats.h
+    src/core/WindowLayout.h
     src/core/ThemeManager.h
     src/core/ThemeManager.cpp
     src/core/PlaybackController.h
@@ -209,9 +210,11 @@ qt_add_qml_module(virela
         qml/components/AmbientBackdrop.qml
         qml/components/FormatBadge.qml
         qml/components/GlassPanel.qml
+        qml/components/ThemeTransitionOverlay.qml
         qml/components/HeroTransitionLayer.qml
         qml/components/NavigationRail.qml
         qml/components/VinylDiscItem.qml
+        qml/components/VinylCoverMask.qml
         qml/components/VirelaButton.qml
         qml/components/VirelaSwitch.qml
         qml/components/VirelaSlider.qml

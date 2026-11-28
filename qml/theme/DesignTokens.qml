@@ -5,7 +5,7 @@ QtObject {
     id: root
 
     readonly property bool isDark: themeManager.isDark
-    readonly property bool nativeBackdropActive: themeManager.nativeBackdropActive
+    readonly property bool nativeBackdropActive: false
     readonly property string backdropMode: themeManager.backdropMode
     readonly property color ambientPrimary: themeManager.ambientPrimary
     readonly property color ambientSecondary: themeManager.ambientSecondary
@@ -20,36 +20,31 @@ QtObject {
 
     // Base Window & Spatial Glass Layering
     readonly property color solidWindowBg: isDark ? "#0b0d14" : "#f1f3f9"
-    readonly property color windowBg: {
-        if (nativeBackdropActive) {
-            return isDark ? Qt.rgba(0.045, 0.05, 0.072, 0.48) : Qt.rgba(0.955, 0.965, 0.985, 0.56)
-        }
-        return solidWindowBg
-    }
+    readonly property color windowBg: solidWindowBg
 
     readonly property color canvasBg: isDark
-        ? Qt.rgba(0.085, 0.092, 0.128, nativeBackdropActive ? 0.46 : 0.64)
-        : Qt.rgba(1.0, 1.0, 1.0, nativeBackdropActive ? 0.54 : 0.72)
+        ? Qt.rgba(0.085, 0.092, 0.128, 0.64)
+        : Qt.rgba(1.0, 1.0, 1.0, 0.72)
 
     readonly property color sidebarBg: isDark
-        ? Qt.rgba(0.095, 0.102, 0.142, nativeBackdropActive ? 0.52 : 0.72)
-        : Qt.rgba(1.0, 1.0, 1.0, nativeBackdropActive ? 0.60 : 0.78)
+        ? Qt.rgba(0.095, 0.102, 0.142, 0.72)
+        : Qt.rgba(1.0, 1.0, 1.0, 0.78)
 
     readonly property color sidebarGlass: sidebarBg
 
     readonly property color dockGlass: isDark
-        ? Qt.rgba(0.115, 0.124, 0.172, nativeBackdropActive ? 0.82 : 0.90)
-        : Qt.rgba(0.99, 0.992, 1.0, nativeBackdropActive ? 0.84 : 0.92)
+        ? Qt.rgba(0.115, 0.124, 0.172, 0.90)
+        : Qt.rgba(0.99, 0.992, 1.0, 0.92)
 
     readonly property color playbackBarBg: dockGlass
 
     readonly property color surfaceCard: isDark
-        ? Qt.rgba(0.14, 0.15, 0.20, nativeBackdropActive ? 0.52 : 0.68)
-        : Qt.rgba(1.0, 1.0, 1.0, nativeBackdropActive ? 0.66 : 0.84)
+        ? Qt.rgba(0.14, 0.15, 0.20, 0.68)
+        : Qt.rgba(1.0, 1.0, 1.0, 0.84)
 
     readonly property color surfaceCardHover: isDark
-        ? Qt.rgba(0.18, 0.195, 0.255, nativeBackdropActive ? 0.64 : 0.78)
-        : Qt.rgba(1.0, 1.0, 1.0, nativeBackdropActive ? 0.82 : 0.94)
+        ? Qt.rgba(0.18, 0.195, 0.255, 0.78)
+        : Qt.rgba(1.0, 1.0, 1.0, 0.94)
 
     readonly property color surfaceElevated: isDark
         ? Qt.rgba(0.135, 0.145, 0.195, 0.94)
@@ -93,8 +88,8 @@ QtObject {
         : Qt.rgba(0.06, 0.08, 0.16, 0.24)
 
     readonly property color borderSpecularTop: isDark
-        ? Qt.rgba(1.0, 1.0, 1.0, 0.20)
-        : Qt.rgba(1.0, 1.0, 1.0, 0.96)
+        ? Qt.rgba(1.0, 1.0, 1.0, 0.16)
+        : Qt.rgba(1.0, 1.0, 1.0, 0.55)
 
     // Virela 2.0 L0 / L1 / L2 Depth & Borderless Spatial Surfaces
     readonly property color hairlineBorder: isDark
@@ -102,20 +97,20 @@ QtObject {
         : Qt.rgba(0.06, 0.08, 0.16, 0.06)
 
     readonly property color railSurfaceBg: isDark
-        ? Qt.rgba(0.082, 0.088, 0.125, nativeBackdropActive ? 0.42 : 0.68)
-        : Qt.rgba(1.0, 1.0, 1.0, nativeBackdropActive ? 0.50 : 0.78)
+        ? Qt.rgba(0.082, 0.088, 0.125, 0.68)
+        : Qt.rgba(1.0, 1.0, 1.0, 0.78)
 
     readonly property color stageSurfaceBg: isDark
-        ? Qt.rgba(0.090, 0.098, 0.140, nativeBackdropActive ? 0.44 : 0.66)
-        : Qt.rgba(1.0, 1.0, 1.0, nativeBackdropActive ? 0.56 : 0.80)
+        ? Qt.rgba(0.090, 0.098, 0.140, 0.66)
+        : Qt.rgba(1.0, 1.0, 1.0, 0.80)
 
     readonly property color contentStageBg: isDark
-        ? Qt.rgba(0.078, 0.085, 0.120, nativeBackdropActive ? 0.34 : 0.54)
-        : Qt.rgba(1.0, 1.0, 1.0, nativeBackdropActive ? 0.44 : 0.68)
+        ? Qt.rgba(0.078, 0.085, 0.120, 0.54)
+        : Qt.rgba(1.0, 1.0, 1.0, 0.68)
 
     readonly property color dockFloatingBg: isDark
-        ? Qt.rgba(0.11, 0.12, 0.17, nativeBackdropActive ? 0.78 : 0.88)
-        : Qt.rgba(0.99, 0.995, 1.0, nativeBackdropActive ? 0.82 : 0.92)
+        ? Qt.rgba(0.11, 0.12, 0.17, 0.88)
+        : Qt.rgba(0.99, 0.995, 1.0, 0.92)
 
     readonly property color dockImmersiveBg: isDark
         ? Qt.rgba(0.10, 0.11, 0.16, 0.58)
@@ -148,18 +143,55 @@ QtObject {
     readonly property int sidebarWidth: 228
     readonly property int compactSidebarWidth: 144
     readonly property int railCollapsedWidth: 60
+    readonly property int railCompactExpandedWidth: 196
     readonly property int railExpandedWidth: 212
-    readonly property int stageDefaultWidth: 344
-    readonly property int stageMinWidth: 288
-    readonly property int stageMaxWidth: 460
-    readonly property int dockMaxWidth: 900
+    readonly property int railWideExpandedWidth: 232
+    readonly property int stageMinWidth: 276
+    readonly property int stageMaxWidth: 520
+    readonly property int dockMaxWidth: 1540
+    readonly property int dockRailMaxWidth: 960
     readonly property int dockImmersiveMaxWidth: 780
     readonly property int titleBarHeight: 46
-    readonly property int dockHeight: 74
+    readonly property int dockHeight: 76
+    readonly property int dockShortHeight: 68
     readonly property int dockMarginX: 16
     readonly property int dockMarginBottom: 12
     readonly property int dockClearance: dockHeight + dockMarginBottom + 10
     readonly property int playbackBarHeight: dockHeight
+    readonly property int settingsMaxWidth: 960
+
+    function computeRailCoverGeometry(stageW, stageH) {
+        const maxByH = (stageH && stageH > 0) ? Math.max(96, Math.round(stageH * 0.29)) : 196
+        const maxByW = Math.max(96, Math.round(stageW - 76))
+        const cap = (stageW >= 380 && (!stageH || stageH >= 740)) ? 216 : 196
+        const art = Math.round(Math.max(96, Math.min(cap, maxByW, maxByH)))
+        return { x: Math.round((stageW - art) * 0.5), y: 64, width: art, height: art, radius: art * 0.5 }
+    }
+
+    function computeImmersiveCoverGeometry(stageW, stageH, vizEnabled) {
+        const bodyW = Math.max(300, stageW - 32)
+        const bodyH = Math.max(240, stageH - 72)
+        const contentW = Math.min(bodyW, 1520)
+        const contentOffsetX = Math.round((bodyW - contentW) * 0.5)
+        const leftColW = Math.round(Math.max(296, Math.min(520, contentW * 0.40)))
+        const controlsH = 66 + 36 + (vizEnabled ? 44 : 0) + 46 + 52 + 42
+        const maxArt = stageW >= 1800 ? 376 : (stageW >= 1440 ? 344 : 308)
+        const art = Math.round(Math.max(152, Math.min(maxArt, leftColW - 56, bodyH - controlsH - 20)))
+        const groupH = art + controlsH
+        const groupY = Math.max(6, Math.round((bodyH - groupH) * 0.45))
+        return {
+            contentW: contentW,
+            contentOffsetX: contentOffsetX,
+            leftColW: leftColW,
+            groupH: groupH,
+            groupY: groupY,
+            x: 16 + contentOffsetX + Math.round((leftColW - art) * 0.5),
+            y: 56 + groupY,
+            width: art,
+            height: art,
+            radius: art * 0.5
+        }
+    }
 
     // Motion Durations (ms)
     readonly property int animFast: 150

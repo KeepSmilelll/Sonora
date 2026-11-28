@@ -42,7 +42,7 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 22
+        anchors.margins: root.width < 680 ? 16 : (root.width >= 1560 ? 26 : 22)
         spacing: 12
 
         // Top Header Bar

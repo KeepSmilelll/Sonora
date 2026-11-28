@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
 import Virela.UI
@@ -66,8 +67,8 @@ Item {
     GlassPanel {
         id: dialogCard
         anchors.centerIn: parent
-        width: Math.min(parent.width - 48, 512)
-        height: Math.min(parent.height - 64, infoCol.implicitHeight + 44)
+        width: Math.min(parent.width - 48, parent.width >= 1600 ? 580 : 512)
+        height: Math.min(parent.height - 64, headerRow.implicitHeight + specBox.implicitHeight + 58)
         radius: 22
         panelColor: DesignTokens.dockFloatingBg
         borderColor: DesignTokens.borderHighlight
@@ -121,13 +122,12 @@ Item {
 
         ColumnLayout {
             id: infoCol
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
+            anchors.fill: parent
             anchors.margins: 22
             spacing: 14
 
             RowLayout {
+                id: headerRow
                 Layout.fillWidth: true
                 spacing: 12
 
@@ -145,7 +145,7 @@ Item {
                         anchors.fill: parent
                         radius: DesignTokens.radiusMd
                         visible: false
-                        layer.enabled: true
+                        layer.enabled: infoCoverImg.status === Image.Ready
                         layer.smooth: true
                     }
 
@@ -238,52 +238,64 @@ Item {
                 }
             }
 
-            Rectangle {
+            Flickable {
                 Layout.fillWidth: true
-                implicitHeight: specList.implicitHeight + 24
-                radius: DesignTokens.radiusMd
-                color: DesignTokens.surfaceInput
-                border.width: 1
-                border.color: DesignTokens.hairlineBorder
+                Layout.fillHeight: true
+                contentWidth: width
+                contentHeight: specBox.implicitHeight
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-                ColumnLayout {
-                    id: specList
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: 12
-                    spacing: 8
+                Rectangle {
+                    id: specBox
+                    width: parent.width
+                    height: implicitHeight
+                    implicitHeight: specList.implicitHeight + 24
+                    radius: DesignTokens.radiusMd
+                    color: DesignTokens.surfaceInput
+                    border.width: 1
+                    border.color: DesignTokens.hairlineBorder
 
-                    SpecRow { label: qsTr("Title"); value: root.trackMap.title || "" }
-                    SpecRow { label: qsTr("Artist"); value: root.trackMap.artist || "" }
-                    SpecRow { label: qsTr("Album"); value: root.trackMap.album || "" }
-                    SpecRow { label: qsTr("Codec / Format"); value: (root.trackMap.codec || "") + (root.trackMap.formatBadge ? (" (" + root.trackMap.formatBadge + ")") : "") }
-                    SpecRow { label: qsTr("Audio Specs"); value: root.trackMap.techSummary || "" }
-                    SpecRow { label: qsTr("Bitrate"); value: root.trackMap.bitrateKbps > 0 ? (root.trackMap.bitrateKbps + " kbps") : "" }
-                    SpecRow {
-                        label: qsTr("ReplayGain")
-                        value: root.trackMap.hasRgTrack
-                            ? (qsTr("Track %1 dB (Peak %2)").arg(Number(root.trackMap.rgTrackGainDb).toFixed(2)).arg(Number(root.trackMap.rgTrackPeak).toFixed(3)))
-                            : qsTr("Not Tagged")
-                    }
-                    SpecRow {
-                        visible: Boolean(root.trackMap.isCue)
-                        label: qsTr("CUE Sheet")
-                        value: root.trackMap.cuePath || ""
-                    }
-                    SpecRow {
-                        visible: Boolean(root.trackMap.isOnline)
-                        label: qsTr("Online Source")
-                        value: root.trackMap.isOnline
-                            ? ((root.trackMap.source || "") + " · ID " + (root.trackMap.remoteId || ""))
-                            : ""
-                        showDivider: Boolean(root.trackMap.filePath)
-                    }
-                    SpecRow {
-                        visible: Boolean(root.trackMap.filePath) || !Boolean(root.trackMap.isOnline)
-                        label: qsTr("File Path")
-                        value: root.trackMap.filePath || ""
-                        showDivider: false
+                    ColumnLayout {
+                        id: specList
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: 12
+                        spacing: 8
+
+                        SpecRow { label: qsTr("Title"); value: root.trackMap.title || "" }
+                        SpecRow { label: qsTr("Artist"); value: root.trackMap.artist || "" }
+                        SpecRow { label: qsTr("Album"); value: root.trackMap.album || "" }
+                        SpecRow { label: qsTr("Codec / Format"); value: (root.trackMap.codec || "") + (root.trackMap.formatBadge ? (" (" + root.trackMap.formatBadge + ")") : "") }
+                        SpecRow { label: qsTr("Audio Specs"); value: root.trackMap.techSummary || "" }
+                        SpecRow { label: qsTr("Bitrate"); value: root.trackMap.bitrateKbps > 0 ? (root.trackMap.bitrateKbps + " kbps") : "" }
+                        SpecRow {
+                            label: qsTr("ReplayGain")
+                            value: root.trackMap.hasRgTrack
+                                ? (qsTr("Track %1 dB (Peak %2)").arg(Number(root.trackMap.rgTrackGainDb).toFixed(2)).arg(Number(root.trackMap.rgTrackPeak).toFixed(3)))
+                                : qsTr("Not Tagged")
+                        }
+                        SpecRow {
+                            visible: Boolean(root.trackMap.isCue)
+                            label: qsTr("CUE Sheet")
+                            value: root.trackMap.cuePath || ""
+                        }
+                        SpecRow {
+                            visible: Boolean(root.trackMap.isOnline)
+                            label: qsTr("Online Source")
+                            value: root.trackMap.isOnline
+                                ? ((root.trackMap.source || "") + " · ID " + (root.trackMap.remoteId || ""))
+                                : ""
+                            showDivider: Boolean(root.trackMap.filePath)
+                        }
+                        SpecRow {
+                            visible: Boolean(root.trackMap.filePath) || !Boolean(root.trackMap.isOnline)
+                            label: qsTr("File Path")
+                            value: root.trackMap.filePath || ""
+                            showDivider: false
+                        }
                     }
                 }
             }

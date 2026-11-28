@@ -4,6 +4,7 @@ import Virela.UI
 
 GlassPanel {
     id: root
+    clipContent: false
 
     required property var controller
     property bool lyricsOpen: false
@@ -17,6 +18,12 @@ GlassPanel {
     property string currentDownloadStatus: "none"
 
     readonly property bool showTrackIdentity: stageMode === "collapsed" || !controller.hasTrack
+    readonly property bool shortMode: height < 72
+
+    readonly property real _innerWidth: Math.max(0, width - (compact ? 28 : 40))
+    readonly property real sideZoneWidth: Math.max(
+        rightTools.implicitWidth,
+        Math.min(root.compact ? 236 : (root.width >= 1360 ? 356 : 316), Math.round(_innerWidth * 0.255)))
 
     signal toggleLyrics()
     signal toggleEq()
@@ -34,21 +41,24 @@ GlassPanel {
         return dockVinyl.discRotation
     }
 
-    function predictedCoverRectInWindow(winWidth, winHeight, targetDockWidth, isCompact) {
+    function predictedCoverRectInWindow(winWidth, winHeight, targetDockWidth, isCompact, dockH, dockMarginB) {
+        const effDockH = dockH === undefined ? DesignTokens.dockHeight : dockH
+        const effDockMarginB = dockMarginB === undefined ? DesignTokens.dockMarginBottom : dockMarginB
+        const coverSize = effDockH < 72 ? 42 : 46
         const dockX = (winWidth - targetDockWidth) * 0.5
-        const dockY = winHeight - DesignTokens.dockMarginBottom - DesignTokens.dockHeight
-        const marginL = (isCompact ? 12 : 16) + 3
+        const dockY = winHeight - effDockMarginB - effDockH
+        const marginL = (isCompact ? 14 : 20) + 2
         return {
             x: Math.round(dockX + marginL),
-            y: Math.round(dockY + (DesignTokens.dockHeight - 46) * 0.5),
-            width: 46,
-            height: 46,
-            radius: 23
+            y: Math.round(dockY + (effDockH - coverSize) * 0.5),
+            width: coverSize,
+            height: coverSize,
+            radius: coverSize * 0.5
         }
     }
 
     implicitHeight: DesignTokens.dockHeight
-    radius: 24
+    radius: 22
     panelColor: immersiveFactor > 0.5 ? DesignTokens.dockImmersiveBg : DesignTokens.dockFloatingBg
     borderColor: DesignTokens.borderOuter
     specularEnabled: true
@@ -62,7 +72,10 @@ GlassPanel {
         property real iconSize: 16
         signal clicked()
 
-        implicitWidth: 29
+        // Reserve space for the seek row as the dock narrows with FocusStage open.
+        implicitWidth: root.compact
+            ? Math.min(29, 20 + Math.floor(Math.max(0, root.width - DesignTokens.dockImmersiveMaxWidth) / 12))
+            : 29
         implicitHeight: 29
 
         scale: btnMa.pressed ? 0.89 : (btnMa.containsMouse ? 1.07 : 1.0)
@@ -118,34 +131,33 @@ GlassPanel {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: root.compact ? 12 : 16
-        anchors.rightMargin: root.compact ? 12 : 16
-        spacing: root.compact ? 10 : 16
+        anchors.leftMargin: root.compact ? 14 : 20
+        anchors.rightMargin: root.compact ? 14 : 20
+        spacing: root.compact ? 12 : 18
 
         // Left: Cover and track metadata (auto-collapses cleanly when FocusStage displays cover)
         RowLayout {
             id: trackIdentityBox
             Layout.fillWidth: false
             Layout.fillHeight: true
-            Layout.preferredWidth: root.showTrackIdentity ? (root.compact ? 184 : 236) : 0
+            Layout.maximumHeight: root.height
+            Layout.preferredWidth: root.showTrackIdentity ? root.sideZoneWidth : 0
+            Layout.minimumWidth: root.showTrackIdentity ? Math.min(root.sideZoneWidth, root.compact ? 190 : 236) : 0
             Layout.maximumWidth: Layout.preferredWidth
             opacity: root.showTrackIdentity ? 1.0 : 0.0
-            visible: Layout.preferredWidth > 2
-            clip: !root.showTrackIdentity || width < (root.compact ? 180 : 232)
-            spacing: 10
+            visible: root.showTrackIdentity
+            clip: width < Layout.minimumWidth
+            spacing: 12
 
-            Behavior on Layout.preferredWidth {
-                NumberAnimation { duration: 240; easing.type: Easing.OutQuint }
-            }
             Behavior on opacity {
                 NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
             }
 
             Item {
                 id: coverButton
-                Layout.leftMargin: 3
-                implicitWidth: 46
-                implicitHeight: 46
+                Layout.leftMargin: 2
+                implicitWidth: root.shortMode ? 42 : 46
+                implicitHeight: root.shortMode ? 42 : 46
                 opacity: root.hideCoverForHero ? 0.0 : 1.0
 
                 readonly property bool hovered: coverMa.containsMouse && root.controller.hasTrack
@@ -276,15 +288,23 @@ GlassPanel {
             }
         }
 
+        // Balance the right slot when FocusStage displays the track identity.
+        Item {
+            visible: !root.showTrackIdentity
+            Layout.preferredWidth: rightToolsSlot.Layout.preferredWidth
+        }
+
         // Center: Transport buttons + interactive seek bar with floating hover time pill
         ColumnLayout {
             Layout.fillWidth: true
-            spacing: 4
+            Layout.minimumWidth: root.width < 940 ? 236 : 280
+            Layout.maximumWidth: Number.POSITIVE_INFINITY
+            spacing: root.shortMode ? 2 : 5
             z: 10
 
             RowLayout {
                 Layout.alignment: Qt.AlignHCenter
-                spacing: root.compact ? 9 : 15
+                spacing: root.compact ? 10 : 16
 
                 DockIconBtn {
                     iconName: "shuffle"
@@ -303,8 +323,8 @@ GlassPanel {
                 // Primary playback button.
                 Item {
                     id: playPauseBtn
-                    implicitWidth: 38
-                    implicitHeight: 38
+                    implicitWidth: root.shortMode ? 34 : 38
+                    implicitHeight: root.shortMode ? 34 : 38
 
                     scale: playMa.pressed ? 0.90 : (playMa.containsMouse ? 1.07 : 1.0)
                     Behavior on scale {
@@ -376,9 +396,9 @@ GlassPanel {
 
             RowLayout {
                 Layout.fillWidth: true
-                Layout.maximumWidth: 550
+                Layout.maximumWidth: root.width >= 1360 ? 620 : 540
                 Layout.alignment: Qt.AlignHCenter
-                spacing: 9
+                spacing: 10
 
                 Text {
                     text: root.controller.formatTime(seekMa.pressed ? seekMa.hoverRatio * root.controller.durationMs : root.controller.positionMs)
@@ -387,7 +407,7 @@ GlassPanel {
                     font.pixelSize: 11
                     font.weight: seekMa.pressed ? Font.DemiBold : Font.Normal
                     font.features: ({ "tnum": 1 })
-                    Layout.preferredWidth: 30
+                    Layout.preferredWidth: 36
                     horizontalAlignment: Text.AlignRight
                 }
 
@@ -513,83 +533,111 @@ GlassPanel {
                     font.family: DesignTokens.fontFamily
                     font.pixelSize: 11
                     font.features: ({ "tnum": 1 })
-                    Layout.preferredWidth: 30
+                    Layout.preferredWidth: 36
                 }
             }
         }
 
         // Right: Lyrics, EQ, Download, Info, Queue, Mute + VirelaSlider Volume
         RowLayout {
-            id: rightTools
+            id: rightToolsSlot
+            z: 20
             Layout.fillWidth: false
-            Layout.preferredWidth: rightTools.implicitWidth
+            Layout.preferredWidth: root.showTrackIdentity ? root.sideZoneWidth : rightTools.implicitWidth
             Layout.minimumWidth: rightTools.implicitWidth
-            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-            spacing: root.compact ? 3 : 4
+            Layout.maximumWidth: Layout.preferredWidth
+            spacing: 0
 
-            DockIconBtn {
-                iconName: "lyrics"
-                iconSize: 15
-                active: root.lyricsOpen
-                onClicked: root.toggleLyrics()
-            }
+            Item { Layout.fillWidth: true }
 
-            DockIconBtn {
-                iconName: "eq"
-                iconSize: 15
-                active: root.eqOpen
-                onClicked: root.toggleEq()
-            }
+            RowLayout {
+                id: rightTools
+                Layout.fillWidth: false
+                spacing: root.compact ? 3 : 5
 
-            DockIconBtn {
-                readonly property bool isDlActive: root.currentDownloadStatus === "downloading" || root.currentDownloadStatus === "queued"
-                iconName: root.currentDownloadStatus === "done" ? "check" : "download"
-                iconSize: 15
-                active: root.currentDownloadStatus === "done"
-                visible: root.controller.hasTrack && root.controller.trackIsOnline
-                enabled: !isDlActive
-                opacity: isDlActive ? 0.55 : 1.0
-                SequentialAnimation on opacity {
-                    running: root.controller.hasTrack && root.controller.trackIsOnline
-                        && (root.currentDownloadStatus === "downloading" || root.currentDownloadStatus === "queued")
-                    loops: Animation.Infinite
-                    NumberAnimation { from: 0.35; to: 0.90; duration: 650; easing.type: Easing.InOutSine }
-                    NumberAnimation { from: 0.90; to: 0.35; duration: 650; easing.type: Easing.InOutSine }
+                RowLayout {
+                    spacing: root.compact ? 3 : 5
+
+                    DockIconBtn {
+                        iconName: "lyrics"
+                        iconSize: 15
+                        active: root.lyricsOpen
+                        onClicked: root.toggleLyrics()
+                    }
+
+                    DockIconBtn {
+                        iconName: "eq"
+                        iconSize: 15
+                        active: root.eqOpen
+                        onClicked: root.toggleEq()
+                    }
+
+                    DockIconBtn {
+                        readonly property bool isDlActive: root.currentDownloadStatus === "downloading" || root.currentDownloadStatus === "queued"
+                        iconName: root.currentDownloadStatus === "done" ? "check" : "download"
+                        iconSize: 15
+                        active: root.currentDownloadStatus === "done"
+                        visible: root.controller.hasTrack && root.controller.trackIsOnline
+                        enabled: !isDlActive
+                        opacity: isDlActive ? 0.55 : 1.0
+                        SequentialAnimation on opacity {
+                            running: root.controller.hasTrack && root.controller.trackIsOnline
+                                && (root.currentDownloadStatus === "downloading" || root.currentDownloadStatus === "queued")
+                            loops: Animation.Infinite
+                            NumberAnimation { from: 0.35; to: 0.90; duration: 650; easing.type: Easing.InOutSine }
+                            NumberAnimation { from: 0.90; to: 0.35; duration: 650; easing.type: Easing.InOutSine }
+                        }
+                        onClicked: root.downloadCurrentRequested()
+                    }
+
+                    DockIconBtn {
+                        iconName: "info"
+                        iconSize: 15
+                        visible: root.controller.hasTrack
+                        onClicked: root.openTrackInfo()
+                    }
+
+                    DockIconBtn {
+                        iconName: "queue"
+                        iconSize: 15
+                        active: root.queueOpen
+                        onClicked: root.toggleQueue()
+                    }
                 }
-                onClicked: root.downloadCurrentRequested()
-            }
 
-            DockIconBtn {
-                iconName: "info"
-                iconSize: 15
-                visible: root.controller.hasTrack
-                onClicked: root.openTrackInfo()
-            }
+                Rectangle {
+                    implicitWidth: 1
+                    implicitHeight: 16
+                    color: DesignTokens.hairlineBorder
+                    Layout.leftMargin: 4
+                    Layout.rightMargin: 4
+                }
 
-            DockIconBtn {
-                iconName: "queue"
-                iconSize: 15
-                active: root.queueOpen
-                onClicked: root.toggleQueue()
-            }
+                RowLayout {
+                    spacing: root.compact ? 3 : 5
 
-            DockIconBtn {
-                iconName: (root.controller.muted || root.controller.volume <= 0.001) ? "volume_mute" : "volume"
-                iconSize: 15
-                onClicked: root.controller.muted = !root.controller.muted
-            }
+                    DockIconBtn {
+                        iconName: (root.controller.muted || root.controller.volume <= 0.001) ? "volume_mute" : "volume"
+                        iconSize: 15
+                        onClicked: root.controller.muted = !root.controller.muted
+                    }
 
-            VirelaSlider {
-                Layout.preferredWidth: root.compact ? 64 : 76
-                Layout.minimumWidth: root.compact ? 56 : 68
-                Layout.rightMargin: 2
-                from: 0.0
-                to: 1.0
-                value: root.controller.muted ? 0.0 : root.controller.volume
-                accentColor: DesignTokens.accent
-                onMoved: (v) => {
-                    root.controller.muted = false
-                    root.controller.volume = v
+                    VirelaSlider {
+                        Layout.preferredWidth: root.width < 920 ? 62 : (root.compact ? 74 : (root.width >= 1360 ? 108 : 94))
+                        Layout.minimumWidth: root.width < 920 ? 54 : (root.compact ? 64 : 84)
+                        Layout.rightMargin: 2
+                        from: 0.0
+                        to: 1.0
+                        value: root.controller.muted ? 0.0 : root.controller.volume
+                        valueControlled: true
+                        showValueTooltip: true
+                        valueTooltipText: Math.round((root.controller.muted ? 0.0 : root.controller.volume) * 100) + "%"
+                        accentColor: DesignTokens.accent
+                        onMoved: (v) => {
+                            root.controller.muted = false
+                            root.controller.volume = v
+                        }
+                    }
                 }
             }
         }

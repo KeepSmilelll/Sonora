@@ -18,6 +18,7 @@ Rectangle {
     signal searchCleared()
     signal toggleMiniMode()
     signal toggleTheme()
+    signal toggleThemeAt(real wx, real wy)
     signal openFilesRequested()
     signal minimizeClicked()
     signal maximizeRestoreClicked()
@@ -29,6 +30,7 @@ Rectangle {
     color: "transparent"
 
     readonly property bool searchFocused: searchInput.activeFocus
+    readonly property real _dpr: root.Screen.devicePixelRatio || 1.0
 
     function focusSearch() {
         searchInput.forceActiveFocus(Qt.ShortcutFocusReason)
@@ -76,6 +78,7 @@ Rectangle {
     onWidthChanged: syncInteractiveRegions()
     onHeightChanged: syncInteractiveRegions()
     onRailExpandedChanged: Qt.callLater(syncInteractiveRegions)
+    on_DprChanged: Qt.callLater(syncInteractiveRegions)
     onImmersiveFactorChanged: {
         if (immersiveFactor < 0.5) Qt.callLater(syncInteractiveRegions)
     }
@@ -109,7 +112,9 @@ Rectangle {
         property real iconSize: 14
         property bool isClose: false
         property bool active: false
-        property real iconRotation: 0
+        readonly property color iconColor: (isClose && btnMa.containsMouse)
+            ? "#ffffff"
+            : (active ? DesignTokens.accentLight : (btnMa.containsMouse ? DesignTokens.textPrimary : DesignTokens.textSecondary))
         signal clicked()
 
         implicitWidth: isClose ? 30 : 28
@@ -135,10 +140,8 @@ Rectangle {
             anchors.centerIn: parent
             name: btn.iconName
             size: btn.iconSize
-            rotation: btn.iconRotation
-            color: (btn.isClose && btnMa.containsMouse)
-                ? "#ffffff"
-                : (btn.active ? DesignTokens.accentLight : (btnMa.containsMouse ? DesignTokens.textPrimary : DesignTokens.textSecondary))
+            visible: btn.iconName.length > 0
+            color: btn.iconColor
         }
 
         MouseArea {
@@ -150,7 +153,20 @@ Rectangle {
         }
     }
 
+    component ThemeIcon: IconGlyph {
+        property bool shown: false
+        property real hiddenRotation: 0
+
+        opacity: shown ? 1.0 : 0.0
+        scale: shown ? 1.0 : 0.65
+        rotation: shown ? 0 : hiddenRotation
+        Behavior on opacity { NumberAnimation { duration: 360; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: 360; easing.type: Easing.OutCubic } }
+        Behavior on rotation { NumberAnimation { duration: 360; easing.type: Easing.OutCubic } }
+    }
+
     RowLayout {
+        id: titleLayout
         anchors.fill: parent
         anchors.leftMargin: 18
         anchors.rightMargin: 10
@@ -160,7 +176,8 @@ Rectangle {
         RowLayout {
             spacing: 9
             Layout.fillWidth: false
-            Layout.preferredWidth: root.compact ? 156 : 192
+            Layout.preferredWidth: rightControlsRow.implicitWidth
+                - (titleLayout.anchors.leftMargin - titleLayout.anchors.rightMargin)
 
             BarActionBtn {
                 id: railToggleBtn
@@ -177,7 +194,7 @@ Rectangle {
             Item { Layout.fillWidth: true }
         }
 
-        // Center frosted search capsule (expands smoothly on focus; fades in immersive mode)
+        // Center search capsule (expands on focus and fades in immersive mode)
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -190,7 +207,9 @@ Rectangle {
                 readonly property real maxAllowed: Math.max(180, parent.width - 24)
                 readonly property bool hovered: searchHover.hovered
                 readonly property bool editing: searchInput.activeFocus
-                width: Math.min(maxAllowed, editing ? 460 : (root.compact ? 300 : 388))
+                width: Math.min(maxAllowed, editing
+                    ? Math.round(Math.max(400, Math.min(640, root.width * 0.34)))
+                    : Math.round(Math.max(280, Math.min(540, root.width * 0.28))))
                 height: 32
                 radius: 16
                 color: {
@@ -236,13 +255,46 @@ Rectangle {
                     anchors.rightMargin: 10
                     spacing: 8
 
-                    BarActionBtn {
-                        iconName: "search"
-                        active: searchPill.editing
+                    Item {
+                        id: searchButton
+                        implicitWidth: 22
+                        implicitHeight: 22
+                        Accessible.role: Accessible.Button
                         Accessible.name: qsTr("Search")
-                        onClicked: {
-                            if (searchInput.text.trim().length > 0) root.searchSubmitted(searchInput.text)
-                            else root.focusSearch()
+                        Accessible.onPressAction: activate()
+
+                        function activate() {
+                            if (searchInput.text.trim().length > 0) {
+                                root.searchSubmitted(searchInput.text)
+                            } else {
+                                root.focusSearch()
+                            }
+                        }
+
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: width * 0.5
+                            color: searchBtnMa.pressed ? DesignTokens.surfacePressed
+                                : (searchBtnMa.containsMouse ? DesignTokens.surfaceHover : "transparent")
+                            Behavior on color { ColorAnimation { duration: 120 } }
+                        }
+
+                        IconGlyph {
+                            anchors.centerIn: parent
+                            name: "search"
+                            size: 14
+                            color: searchPill.editing ? DesignTokens.accent
+                                : (searchPill.hovered || searchBtnMa.containsMouse ? DesignTokens.textPrimary : DesignTokens.textTertiary)
+                            scale: searchBtnMa.pressed ? 0.90 : (searchPill.editing ? 1.06 : 1.0)
+                            Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                        }
+
+                        MouseArea {
+                            id: searchBtnMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: searchButton.activate()
                         }
                     }
 
@@ -351,22 +403,48 @@ Rectangle {
 
             BarActionBtn {
                 id: themeBtn
-                iconName: DesignTokens.isDark ? "sun" : "moon"
-                iconSize: 15
-                property real spinAngle: 0
-                iconRotation: spinAngle
-                NumberAnimation {
-                    id: themeSpinAnim
-                    target: themeBtn
-                    property: "spinAngle"
-                    from: 0
-                    to: 360
-                    duration: 380
-                    easing.type: Easing.OutQuint
+                iconName: ""
+
+                Rectangle {
+                    id: themeHalo
+                    anchors.centerIn: parent
+                    width: 22
+                    height: width
+                    radius: width * 0.5
+                    color: "transparent"
+                    border.width: 1
+                    border.color: DesignTokens.accent
+                    opacity: 0.0
                 }
+
+                ParallelAnimation {
+                    id: themeRipple
+                    NumberAnimation { target: themeHalo; property: "opacity"; from: 0.30; to: 0.0; duration: 360; easing.type: Easing.OutCubic }
+                    NumberAnimation { target: themeHalo; property: "scale"; from: 0.65; to: 1.55; duration: 360; easing.type: Easing.OutCubic }
+                }
+
+                ThemeIcon {
+                    anchors.centerIn: parent
+                    name: "sun"
+                    size: 15
+                    color: themeBtn.iconColor
+                    shown: DesignTokens.isDark
+                    hiddenRotation: -80
+                }
+
+                ThemeIcon {
+                    anchors.centerIn: parent
+                    name: "moon"
+                    size: 15
+                    color: themeBtn.iconColor
+                    shown: !DesignTokens.isDark
+                    hiddenRotation: 80
+                }
+
                 onClicked: {
-                    themeSpinAnim.restart()
-                    root.toggleTheme()
+                    themeRipple.restart()
+                    const p = themeBtn.mapToItem(null, themeBtn.width * 0.5, themeBtn.height * 0.5)
+                    root.toggleThemeAt(p.x, p.y)
                 }
             }
 

@@ -69,7 +69,7 @@ protected:
 private:
     void updateTimerState();
     void onFrameTick();
-    void triggerSettle(int frames = 24);
+    void triggerSettle(int frames = 30);
 
     QPointer<QQuickWindow> observedWindow_;
 

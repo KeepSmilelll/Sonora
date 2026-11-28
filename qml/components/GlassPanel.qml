@@ -14,6 +14,7 @@ Item {
     property bool shadowEnabled: elevated
     property bool specularEnabled: true
     property bool borderless: false
+    property bool clipContent: true
 
     // Outer ambient shadow ring (zero GPU shader blur cost)
     Rectangle {
@@ -48,10 +49,10 @@ Item {
         color: root.panelColor
         border.width: root.borderless ? 0 : 1
         border.color: root.borderColor
-        clip: true
+        clip: root.clipContent
 
-        Behavior on color { ColorAnimation { duration: DesignTokens.animFast } }
-        Behavior on border.color { ColorAnimation { duration: DesignTokens.animFast } }
+        Behavior on color { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
+        Behavior on border.color { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
 
         // Top 1px visionOS specular light reflection rim
         Rectangle {
@@ -60,8 +61,8 @@ Item {
             anchors.topMargin: 1
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.leftMargin: Math.max(8, root.radius * 0.65)
-            anchors.rightMargin: Math.max(8, root.radius * 0.65)
+            anchors.leftMargin: Math.max(12, root.radius)
+            anchors.rightMargin: Math.max(12, root.radius)
             height: 1
             z: 99
             gradient: Gradient {

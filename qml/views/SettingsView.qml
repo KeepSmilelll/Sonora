@@ -16,9 +16,10 @@ Item {
     signal selectDownloadDirRequested()
     signal selectNeteaseServiceDirRequested()
     signal selectMetingServiceDirRequested()
-
-    property bool showCookieText: false
+    signal themeModeChangeRequested(string mode, real wx, real wy)
     property string activeSettingsTab: "online" // "online" | "audio" | "local" | "appearance"
+    readonly property int horizontalPadding: width < 680 ? 16 : 22
+    readonly property real contentWidth: Math.min(width - horizontalPadding * 2, DesignTokens.settingsMaxWidth)
 
     function showOnlineSources() {
         activeSettingsTab = "online"
@@ -101,9 +102,11 @@ Item {
 
         // Pinned Settings Header + 4-Tab Segmented Navigation
         ColumnLayout {
-            Layout.fillWidth: true
-            Layout.leftMargin: 22
-            Layout.rightMargin: 22
+            Layout.alignment: Qt.AlignHCenter
+            Layout.preferredWidth: root.contentWidth
+            Layout.fillWidth: false
+            Layout.leftMargin: 0
+            Layout.rightMargin: 0
             Layout.topMargin: 22
             Layout.bottomMargin: 12
             spacing: 12
@@ -211,11 +214,9 @@ Item {
 
             ColumnLayout {
                 id: mainCol
-                anchors.left: parent.left
-                anchors.right: parent.right
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: root.contentWidth
                 anchors.top: parent.top
-                anchors.leftMargin: 22
-                anchors.rightMargin: 22
                 anchors.topMargin: 2
                 spacing: 16
 
@@ -237,7 +238,7 @@ Item {
                         font.weight: Font.Medium
                     }
                     VirelaComboBox {
-                        Layout.preferredWidth: 268
+                        Layout.preferredWidth: Math.min(268, Math.max(176, Math.round(root.contentWidth * 0.36)))
                         model: root.controller.audioDevices
                         textRole: "name"
                         currentIndex: {
@@ -288,6 +289,7 @@ Item {
                     spacing: 14
                     Text {
                         Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
                         text: qsTr("Auto Native Sample Rate Switching")
                         color: DesignTokens.textSecondary
                         font.family: DesignTokens.fontFamily
@@ -305,6 +307,7 @@ Item {
                     spacing: 14
                     Text {
                         Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
                         text: qsTr("Bit-Perfect Bypass (skip DSP when EQ/RG off & volume 100%)")
                         color: DesignTokens.textSecondary
                         font.family: DesignTokens.fontFamily
@@ -321,6 +324,7 @@ Item {
                     spacing: 12
                     Text {
                         Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
                         text: qsTr("DSD to PCM Target Sample Rate")
                         color: DesignTokens.textSecondary
                         font.family: DesignTokens.fontFamily
@@ -341,6 +345,7 @@ Item {
                     spacing: 12
                     Text {
                         Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
                         text: qsTr("ReplayGain Loudness Normalization")
                         color: DesignTokens.textSecondary
                         font.family: DesignTokens.fontFamily
@@ -366,17 +371,22 @@ Item {
                     spacing: 12
                     Text {
                         Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
                         text: qsTr("Theme Mode")
                         color: DesignTokens.textSecondary
                         font.family: DesignTokens.fontFamily
                         font.pixelSize: 13
                     }
                     VirelaComboBox {
+                        id: themeModeCombo
+                        autoSelect: false
                         Layout.preferredWidth: 168
                         model: [qsTr("Follow System"), qsTr("Dark"), qsTr("Light")]
                         currentIndex: root.themeObj.themeMode === "dark" ? 1 : (root.themeObj.themeMode === "light" ? 2 : 0)
                         onActivated: (idx) => {
-                            root.themeObj.themeMode = idx === 1 ? "dark" : (idx === 2 ? "light" : "system")
+                            const targetMode = idx === 1 ? "dark" : (idx === 2 ? "light" : "system")
+                            const p = themeModeCombo.mapToItem(null, themeModeCombo.width * 0.5, themeModeCombo.height * 0.5)
+                            root.themeModeChangeRequested(targetMode, p.x, p.y)
                         }
                     }
                 }
@@ -386,24 +396,19 @@ Item {
                     spacing: 12
                     Text {
                         Layout.fillWidth: true
-                        text: qsTr("Window Backdrop Material")
+                        wrapMode: Text.WordWrap
+                        text: qsTr("Window Background Style")
                         color: DesignTokens.textSecondary
                         font.family: DesignTokens.fontFamily
                         font.pixelSize: 13
                     }
                     VirelaComboBox {
+                        readonly property var modes: ["ambient", "solid"]
                         Layout.preferredWidth: 192
-                        model: [qsTr("Windows 11 Mica"), qsTr("Windows 11 Acrylic"), qsTr("Ambient Cover Glow"), qsTr("Solid Minimal")]
-                        currentIndex: {
-                            if (root.themeObj.backdropMode === "mica") return 0
-                            if (root.themeObj.backdropMode === "acrylic") return 1
-                            if (root.themeObj.backdropMode === "ambient") return 2
-                            return 3
-                        }
-                        onActivated: (idx) => {
-                            const modes = ["mica", "acrylic", "ambient", "solid"]
-                            root.themeObj.backdropMode = modes[idx]
-                        }
+                        autoSelect: false
+                        model: [qsTr("Ambient Cover Glow"), qsTr("Solid Minimal")]
+                        currentIndex: modes.indexOf(root.themeObj.backdropMode)
+                        onActivated: (idx) => root.themeObj.backdropMode = modes[idx]
                     }
                 }
 
@@ -412,6 +417,7 @@ Item {
                     spacing: 12
                     Text {
                         Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
                         text: qsTr("Interface Language")
                         color: DesignTokens.textSecondary
                         font.family: DesignTokens.fontFamily
@@ -432,6 +438,7 @@ Item {
                     spacing: 14
                     Text {
                         Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
                         text: qsTr("Real-Time Spectrum Visualizer")
                         color: DesignTokens.textSecondary
                         font.family: DesignTokens.fontFamily
@@ -587,7 +594,6 @@ Item {
                         onClicked: {
                             root.settingsObj.onlineNeteaseApiUrl = neteaseUrlInput.text
                             root.settingsObj.onlineMetingApiUrl = metingUrlInput.text
-                            root.settingsObj.onlineCookie = cookieInput.text
                             root.onlineCtrl.testConnections()
                         }
                     }
@@ -730,6 +736,7 @@ Item {
                     spacing: 12
                     Text {
                         Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
                         text: qsTr("Direct Stream URL Priority")
                         color: DesignTokens.textSecondary
                         font.family: DesignTokens.fontFamily
@@ -745,71 +752,13 @@ Item {
                     }
                 }
 
-                // Auto Fallback
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 14
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 2
-                        Text {
-                            text: qsTr("Automatic Backend & Quality Fallback")
-                            color: DesignTokens.textPrimary
-                            font.family: DesignTokens.fontFamily
-                            font.pixelSize: 13
-                            font.weight: Font.Medium
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            wrapMode: Text.WordWrap
-                            text: qsTr("Automatically fall back to the secondary backend or lower bitrate if a stream URL is unavailable or a VIP preview.")
-                            color: DesignTokens.textTertiary
-                            font.family: DesignTokens.fontFamily
-                            font.pixelSize: 11
-                        }
-                    }
-                    VirelaSwitch {
-                        checked: root.settingsObj.onlineAutoFallback
-                        onToggled: (state) => root.settingsObj.onlineAutoFallback = state
-                    }
-                }
-
-                // Trial / Copyright Unblock Fallback (/song/url/match)
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 14
-                    visible: root.settingsObj.onlineAutoFallback
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 2
-                        Text {
-                            text: qsTr("Trial / Copyright Unblock Fallback (/song/url/match)")
-                            color: DesignTokens.textPrimary
-                            font.family: DesignTokens.fontFamily
-                            font.pixelSize: 13
-                            font.weight: Font.Medium
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            wrapMode: Text.WordWrap
-                            text: qsTr("When your Netease backend only returns a 30–45s VIP preview, automatically query its /song/url/match endpoint for a full stream.")
-                            color: DesignTokens.textTertiary
-                            font.family: DesignTokens.fontFamily
-                            font.pixelSize: 11
-                        }
-                    }
-                    VirelaSwitch {
-                        checked: root.settingsObj.onlineUnblockTrialFallback
-                        onToggled: (state) => root.settingsObj.onlineUnblockTrialFallback = state
-                    }
-                }
-
                 // Default Audio Quality
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 12
                     Text {
                         Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
                         text: qsTr("Default Streaming & Download Quality")
                         color: DesignTokens.textSecondary
                         font.family: DesignTokens.fontFamily
@@ -832,82 +781,13 @@ Item {
                     }
                 }
 
-                // Optional Local Cookie
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 5
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-                        Text {
-                            Layout.fillWidth: true
-                            text: qsTr("Optional Local Cookie (MUSIC_U=...)")
-                            color: DesignTokens.textSecondary
-                            font.family: DesignTokens.fontFamily
-                            font.pixelSize: 13
-                        }
-                        VirelaButton {
-                            compact: true
-                            flat: true
-                            iconName: root.showCookieText ? "eye_off" : "eye"
-                            text: root.showCookieText ? qsTr("Hide") : qsTr("Show")
-                            onClicked: root.showCookieText = !root.showCookieText
-                        }
-                        VirelaButton {
-                            visible: cookieInput.text.length > 0
-                            compact: true
-                            flat: true
-                            text: qsTr("Clear")
-                            onClicked: {
-                                cookieInput.text = ""
-                                root.settingsObj.onlineCookie = ""
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        implicitHeight: 36
-                        radius: 10
-                        color: DesignTokens.surfaceInput
-                        border.width: 1
-                        border.color: cookieInput.activeFocus ? DesignTokens.accent : DesignTokens.borderOuter
-
-                        TextInput {
-                            id: cookieInput
-                            anchors.fill: parent
-                            anchors.leftMargin: 12
-                            anchors.rightMargin: 12
-                            verticalAlignment: TextInput.AlignVCenter
-                            text: root.settingsObj.onlineCookie
-                            echoMode: root.showCookieText ? TextInput.Normal : TextInput.Password
-                            color: DesignTokens.textPrimary
-                            selectionColor: DesignTokens.accent
-                            selectedTextColor: "#ffffff"
-                            selectByMouse: true
-                            font.family: DesignTokens.fontFamily
-                            font.pixelSize: 12
-                            clip: true
-                            onEditingFinished: root.settingsObj.onlineCookie = text
-
-                            Text {
-                                anchors.fill: parent
-                                verticalAlignment: Text.AlignVCenter
-                                text: qsTr("Stored locally in settings.json; never uploaded to third parties")
-                                color: DesignTokens.textTertiary
-                                font: cookieInput.font
-                                visible: cookieInput.text.length === 0 && !cookieInput.inputMethodComposing
-                            }
-                        }
-                    }
-                }
-
                 // Stream Cache LRU Cap & Clear
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 10
                     Text {
                         Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
                         text: qsTr("Stream Cache LRU Limit")
                         color: DesignTokens.textSecondary
                         font.family: DesignTokens.fontFamily
@@ -1087,6 +967,7 @@ Item {
                     spacing: 14
                     Text {
                         Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
                         text: qsTr("Minimize to System Tray on Close")
                         color: DesignTokens.textSecondary
                         font.family: DesignTokens.fontFamily

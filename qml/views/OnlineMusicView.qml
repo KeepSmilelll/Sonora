@@ -10,7 +10,6 @@ Item {
     required property var onlineCtrl
     required property var lib
     required property bool neteaseConfigured
-    property var settingsObj: null
     property int localMatchCount: 0
 
     signal openSettingsRequested()
@@ -22,11 +21,15 @@ Item {
     signal inspectTrack(var trackMap)
 
     readonly property bool compact: width < 680
+    readonly property real _dpr: Math.max(1.0, Math.min(2.0, root.Screen.devicePixelRatio || 1.0))
+    readonly property int cardGridColumns: width >= 2000 ? 5 : (width >= 1560 ? 4 : (width >= 1100 ? 3 : (width >= 660 ? 2 : 1)))
+    readonly property int carouselCardWidth: width >= 1560 ? 184 : (width >= 1120 ? 168 : 152)
+    readonly property int searchCardBaseWidth: width >= 1900 ? 222 : (width >= 1560 ? 208 : (width >= 1120 ? 194 : 178))
+    readonly property int cardCoverPx: Math.min(320, Math.round(200 * _dpr))
     readonly property bool isDiscoverHome: !root.onlineCtrl.inDetail && root.onlineCtrl.searchQuery.trim().length === 0
     readonly property bool isSearchView: !root.onlineCtrl.inDetail && root.onlineCtrl.searchQuery.trim().length > 0
     readonly property bool hasDiscoverOnlineContent: root.neteaseConfigured
-        && (root.onlineCtrl.hotSearches.length > 0
-            || root.onlineCtrl.recommendedPlaylistsModel.count > 0
+        && (root.onlineCtrl.recommendedPlaylistsModel.count > 0
             || root.onlineCtrl.newSongsModel.count > 0)
     readonly property bool hasLocalDiscoverContent: root.lib.recentTracksSummary.length > 0
         || root.lib.recentAlbumsSummary.length > 0
@@ -365,7 +368,7 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 22
+        anchors.margins: root.compact ? 16 : (root.width >= 1560 ? 26 : 22)
         spacing: 14
 
         // Top Header Bar
@@ -402,43 +405,6 @@ Item {
 
             Item { Layout.fillWidth: true }
 
-            VirelaButton {
-                visible: root.isDiscoverHome && root.neteaseConfigured
-                compact: true
-                enabled: !root.onlineCtrl.discoverLoading
-                iconName: "refresh"
-                text: qsTr("Refresh")
-                onClicked: root.onlineCtrl.refreshDiscover()
-            }
-
-            Loader {
-                active: root.settingsObj !== null && root.onlineCtrl.backendConfigured && !root.compact
-                visible: active
-                Layout.preferredWidth: active ? 132 : 0
-                sourceComponent: VirelaComboBox {
-                    model: [qsTr("Standard"), qsTr("ExHigh"), qsTr("Lossless"), qsTr("Hi-Res")]
-                    currentIndex: {
-                        if (!root.settingsObj) return 2
-                        const q = root.settingsObj.onlineAudioQuality
-                        if (q === "standard") return 0
-                        if (q === "exhigh") return 1
-                        if (q === "hires") return 3
-                        return 2
-                    }
-                    onActivated: (idx) => {
-                        if (!root.settingsObj) return
-                        const modes = ["standard", "exhigh", "lossless", "hires"]
-                        root.settingsObj.onlineAudioQuality = modes[idx]
-                    }
-                }
-            }
-
-            VirelaButton {
-                compact: true
-                iconName: "settings"
-                text: qsTr("Sources")
-                onClicked: root.openSettingsRequested()
-            }
         }
 
         // Segmented Category Tabs (Songs / Albums / Artists / Playlists) shown in Search mode
@@ -690,12 +656,16 @@ Item {
                                 lineHeight: 1.45
                             }
 
-                            RowLayout {
+                            Flow {
                                 Layout.alignment: Qt.AlignHCenter
+                                Layout.preferredWidth: Math.min(emptyOnboardCol.width, spacing
+                                    + (discoverSettingsButton.visible ? discoverSettingsButton.implicitWidth : discoverSearchButton.implicitWidth)
+                                    + discoverLocalButton.implicitWidth)
                                 Layout.topMargin: 4
                                 spacing: 10
 
                                 VirelaButton {
+                                    id: discoverSettingsButton
                                     visible: !root.onlineCtrl.backendConfigured
                                     primary: true
                                     iconName: "settings"
@@ -704,6 +674,7 @@ Item {
                                 }
 
                                 VirelaButton {
+                                    id: discoverSearchButton
                                     visible: root.onlineCtrl.backendConfigured
                                     primary: true
                                     iconName: "search"
@@ -712,6 +683,7 @@ Item {
                                 }
 
                                 VirelaButton {
+                                    id: discoverLocalButton
                                     iconName: "music"
                                     text: qsTr("Browse Local Music")
                                     onClicked: root.openLocalRequested()
@@ -754,7 +726,7 @@ Item {
 
                         GridLayout {
                             Layout.fillWidth: true
-                            columns: root.compact ? 1 : 2
+                            columns: root.cardGridColumns
                             columnSpacing: 10
                             rowSpacing: 8
 
@@ -904,84 +876,10 @@ Item {
                             IconGlyph { name: "cloud"; size: 18; color: DesignTokens.accent }
                             Text {
                                 Layout.fillWidth: true
-                                text: qsTr("Loading trending charts, curated playlists, and new releases...")
+                                text: qsTr("Loading curated playlists and new releases...")
                                 color: DesignTokens.textSecondary
                                 font.family: DesignTokens.fontFamily
                                 font.pixelSize: 13
-                            }
-                        }
-                    }
-
-                    // C. Trending Searches
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 10
-                        visible: root.neteaseConfigured && root.onlineCtrl.hotSearches.length > 0
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-
-                            IconGlyph { name: "search"; size: 15; color: DesignTokens.accent }
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: qsTr("Trending Searches")
-                                color: DesignTokens.textPrimary
-                                font.family: DesignTokens.fontFamily
-                                font.pixelSize: 16
-                                font.weight: Font.DemiBold
-                            }
-                        }
-
-                        Flow {
-                            Layout.fillWidth: true
-                            spacing: 8
-
-                            Repeater {
-                                model: root.onlineCtrl.hotSearches
-                                delegate: Rectangle {
-                                    id: hotPill
-                                    required property int index
-                                    required property var modelData
-                                    implicitWidth: hotRow.implicitWidth + 22
-                                    implicitHeight: 30
-                                    radius: 15
-                                    color: hotMa.containsMouse ? DesignTokens.surfaceHover : DesignTokens.stageSurfaceBg
-                                    border.width: 1
-                                    border.color: hotMa.containsMouse ? DesignTokens.borderHighlight : DesignTokens.hairlineBorder
-                                    Behavior on color { ColorAnimation { duration: 120 } }
-
-                                    RowLayout {
-                                        id: hotRow
-                                        anchors.centerIn: parent
-                                        spacing: 6
-
-                                        Text {
-                                            text: String(hotPill.index + 1)
-                                            color: hotPill.index < 3 ? DesignTokens.accent : DesignTokens.textTertiary
-                                            font.family: DesignTokens.fontFamily
-                                            font.pixelSize: 11
-                                            font.weight: Font.Bold
-                                            font.features: ({ "tnum": 1 })
-                                        }
-                                        Text {
-                                            text: hotPill.modelData.word || ""
-                                            color: DesignTokens.textPrimary
-                                            font.family: DesignTokens.fontFamily
-                                            font.pixelSize: 12
-                                            font.weight: hotPill.index < 3 ? Font.DemiBold : Font.Medium
-                                        }
-                                    }
-
-                                    MouseArea {
-                                        id: hotMa
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: root.onlineCtrl.search(hotPill.modelData.word, "songs")
-                                    }
-                                }
                             }
                         }
                     }
@@ -1011,7 +909,7 @@ Item {
                         ListView {
                             id: featuredCarousel
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 224
+                            Layout.preferredHeight: root.carouselCardWidth + 66
                             orientation: ListView.Horizontal
                             spacing: 12
                             clip: true
@@ -1028,8 +926,8 @@ Item {
                                 required property int trackCount
                                 required property string description
 
-                                width: 158
-                                height: 218
+                                width: root.carouselCardWidth
+                                height: root.carouselCardWidth + 58
 
                                 Rectangle {
                                     x: 0
@@ -1060,7 +958,7 @@ Item {
                                                 id: fPlImg
                                                 anchors.fill: parent
                                                 source: fPlCard.coverUrl
-                                                sourceSize: Qt.size(200, 200)
+                                                sourceSize: Qt.size(root.cardCoverPx, root.cardCoverPx)
                                                 fillMode: Image.PreserveAspectCrop
                                                 asynchronous: true
                                                 cache: false
@@ -1133,7 +1031,7 @@ Item {
 
                         GridLayout {
                             Layout.fillWidth: true
-                            columns: root.compact ? 1 : 2
+                            columns: root.cardGridColumns
                             columnSpacing: 10
                             rowSpacing: 4
 
@@ -1329,7 +1227,7 @@ Item {
 
                         ListView {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 224
+                            Layout.preferredHeight: root.carouselCardWidth + 66
                             orientation: ListView.Horizontal
                             spacing: 12
                             clip: true
@@ -1340,8 +1238,8 @@ Item {
                             delegate: Item {
                                 id: locAlCard
                                 required property var modelData
-                                width: 158
-                                height: 218
+                                width: root.carouselCardWidth
+                                height: root.carouselCardWidth + 58
 
                                 Rectangle {
                                     x: 0
@@ -1374,7 +1272,7 @@ Item {
                                                 source: locAlCard.modelData.coverHash && locAlCard.modelData.coverHash.length > 0
                                                     ? ("image://cover/" + locAlCard.modelData.coverHash + "?size=200")
                                                     : ""
-                                                sourceSize: Qt.size(200, 200)
+                                                sourceSize: Qt.size(root.cardCoverPx, root.cardCoverPx)
                                                 fillMode: Image.PreserveAspectCrop
                                                 asynchronous: true
                                                 cache: false
@@ -1467,8 +1365,8 @@ Item {
                 anchors.fill: parent
                 visible: root.onlineCtrl.searchType === "albums"
                 clip: true
-                readonly property int cols: Math.max(2, Math.floor((Math.max(360, width) - 8) / 184))
-                cellWidth: Math.floor((Math.max(360, width) - 8) / cols)
+                readonly property int cols: Math.max(1, Math.floor(width / root.searchCardBaseWidth))
+                cellWidth: Math.max(1, Math.floor(width / cols))
                 cellHeight: cellWidth + 54
                 cacheBuffer: 120
                 boundsBehavior: Flickable.StopAtBounds
@@ -1515,7 +1413,7 @@ Item {
                                     id: alImg
                                     anchors.fill: parent
                                     source: alCard.coverUrl
-                                    sourceSize: Qt.size(200, 200)
+                                    sourceSize: Qt.size(root.cardCoverPx, root.cardCoverPx)
                                     fillMode: Image.PreserveAspectCrop
                                     asynchronous: true
                                     cache: false
@@ -1566,8 +1464,8 @@ Item {
                 anchors.fill: parent
                 visible: root.onlineCtrl.searchType === "artists"
                 clip: true
-                readonly property int cols: Math.max(2, Math.floor((Math.max(360, width) - 8) / 176))
-                cellWidth: Math.floor((Math.max(360, width) - 8) / cols)
+                readonly property int cols: Math.max(1, Math.floor(width / (root.searchCardBaseWidth - 8)))
+                cellWidth: Math.max(1, Math.floor(width / cols))
                 cellHeight: cellWidth + 46
                 cacheBuffer: 120
                 boundsBehavior: Flickable.StopAtBounds
@@ -1609,7 +1507,7 @@ Item {
                                     id: arImg
                                     anchors.fill: parent
                                     source: arCard.coverUrl
-                                    sourceSize: Qt.size(200, 200)
+                                    sourceSize: Qt.size(root.cardCoverPx, root.cardCoverPx)
                                     fillMode: Image.PreserveAspectCrop
                                     asynchronous: true
                                     cache: false
@@ -1662,8 +1560,8 @@ Item {
                 anchors.fill: parent
                 visible: root.onlineCtrl.searchType === "playlists"
                 clip: true
-                readonly property int cols: Math.max(2, Math.floor((Math.max(360, width) - 8) / 184))
-                cellWidth: Math.floor((Math.max(360, width) - 8) / cols)
+                readonly property int cols: Math.max(1, Math.floor(width / root.searchCardBaseWidth))
+                cellWidth: Math.max(1, Math.floor(width / cols))
                 cellHeight: cellWidth + 54
                 cacheBuffer: 120
                 boundsBehavior: Flickable.StopAtBounds
@@ -1711,7 +1609,7 @@ Item {
                                     id: plImg
                                     anchors.fill: parent
                                     source: plCard.coverUrl
-                                    sourceSize: Qt.size(200, 200)
+                                    sourceSize: Qt.size(root.cardCoverPx, root.cardCoverPx)
                                     fillMode: Image.PreserveAspectCrop
                                     asynchronous: true
                                     cache: false
@@ -1829,12 +1727,16 @@ Item {
                         lineHeight: 1.45
                     }
 
-                    RowLayout {
+                    Flow {
                         Layout.alignment: Qt.AlignHCenter
+                        Layout.preferredWidth: Math.min(onboardCol.width, searchLocalButton.implicitWidth
+                            + (searchSettingsButton.visible ? spacing + searchSettingsButton.implicitWidth
+                                : (startSearchButton.visible ? spacing + startSearchButton.implicitWidth : 0)))
                         Layout.topMargin: 4
                         spacing: 10
 
                         VirelaButton {
+                            id: searchSettingsButton
                             visible: !root.onlineCtrl.backendConfigured
                             primary: true
                             iconName: "settings"
@@ -1843,6 +1745,7 @@ Item {
                         }
 
                         VirelaButton {
+                            id: startSearchButton
                             visible: root.onlineCtrl.backendConfigured && root.onlineCtrl.searchQuery.length === 0
                             primary: true
                             iconName: "search"
@@ -1851,6 +1754,7 @@ Item {
                         }
 
                         VirelaButton {
+                            id: searchLocalButton
                             iconName: "music"
                             text: qsTr("Browse Local Music")
                             onClicked: root.openLocalRequested()
@@ -1875,7 +1779,7 @@ Item {
 
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 146
+                Layout.preferredHeight: Math.max(root.compact ? 124 : 146, detailHeaderRow.implicitHeight + 28)
                 radius: DesignTokens.radiusLg
                 gradient: Gradient {
                     orientation: Gradient.Horizontal
@@ -1887,15 +1791,18 @@ Item {
                 border.color: DesignTokens.hairlineBorder
 
                 RowLayout {
-                    anchors.fill: parent
+                    id: detailHeaderRow
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
                     anchors.margins: 14
                     spacing: 16
 
                     Rectangle {
                         id: detailCoverFrame
-                        Layout.preferredWidth: 118
-                        Layout.preferredHeight: 118
-                        radius: root.onlineCtrl.detailType === "artist" ? 59 : DesignTokens.radiusMd
+                        Layout.preferredWidth: root.compact ? 96 : 118
+                        Layout.preferredHeight: root.compact ? 96 : 118
+                        radius: root.onlineCtrl.detailType === "artist" ? width * 0.5 : DesignTokens.radiusMd
                         color: DesignTokens.surfaceInput
                         border.width: 1
                         border.color: DesignTokens.borderHighlight
@@ -1914,7 +1821,7 @@ Item {
                             id: detailHeroImg
                             anchors.fill: parent
                             source: root.onlineCtrl.detailCoverUrl
-                            sourceSize: Qt.size(200, 200)
+                            sourceSize: Qt.size(root.cardCoverPx, root.cardCoverPx)
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
                             cache: false
@@ -1966,7 +1873,8 @@ Item {
                             font.pixelSize: 11
                         }
 
-                        RowLayout {
+                        Flow {
+                            Layout.fillWidth: true
                             Layout.topMargin: 4
                             spacing: 8
 

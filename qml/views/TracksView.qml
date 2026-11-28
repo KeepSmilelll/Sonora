@@ -21,7 +21,8 @@ Item {
 
     readonly property bool compact: width < 650
     readonly property bool shortWindow: height < 540
-    readonly property int metadataColumnWidth: Math.min(132, Math.max(90, Math.round(width * 0.15)))
+    readonly property int artistColumnWidth: Math.min(320, Math.max(112, Math.round(width * 0.18)))
+    readonly property int albumColumnWidth: Math.min(400, Math.max(120, Math.round(width * 0.22)))
     readonly property int actionColumnWidth: compact ? 0 : 54
 
     readonly property string sectionIcon: {
@@ -97,23 +98,10 @@ Item {
         }
     }
 
-    Rectangle {
-        x: libraryLayout.x + sortHeader.x
-        y: libraryLayout.y + sortHeader.y
-        width: sortHeader.width
-        height: libraryLayout.height - sortHeader.y
-        visible: !root.embedded && sortHeader.visible
-        radius: DesignTokens.radiusLg
-        color: DesignTokens.contentStageBg
-        border.width: 1
-        border.color: DesignTokens.hairlineBorder
-    }
-
     ColumnLayout {
         id: libraryLayout
         anchors.fill: parent
-        anchors.leftMargin: root.embedded ? 0 : (root.compact ? 6 : 0)
-        anchors.rightMargin: root.embedded ? 0 : (root.compact ? 6 : 0)
+        anchors.margins: root.embedded ? 0 : (root.compact ? 16 : (root.width >= 1560 ? 26 : 22))
         spacing: root.shortWindow ? 8 : 12
 
         RowLayout {
@@ -127,6 +115,7 @@ Item {
 
                 Text {
                     Layout.minimumWidth: 0
+                    Layout.maximumWidth: Math.max(140, Math.round(root.width * 0.48))
                     elide: Text.ElideRight
                     text: root.sectionTitle
                     color: DesignTokens.textPrimary
@@ -254,14 +243,14 @@ Item {
                     visible: !root.compact
                     label: qsTr("Artist")
                     sortKey: "artist"
-                    Layout.preferredWidth: root.metadataColumnWidth
+                    Layout.preferredWidth: root.artistColumnWidth
                 }
 
                 SortHeaderCell {
                     visible: !root.compact
                     label: qsTr("Album")
                     sortKey: "album"
-                    Layout.preferredWidth: root.metadataColumnWidth
+                    Layout.preferredWidth: root.albumColumnWidth
                 }
 
                 SortHeaderCell {
@@ -471,7 +460,7 @@ Item {
 
                     Text {
                         visible: !root.compact
-                        Layout.preferredWidth: root.metadataColumnWidth
+                        Layout.preferredWidth: root.artistColumnWidth
                         text: row.artist.length > 0 ? row.artist : qsTr("Unknown Artist")
                         elide: Text.ElideRight
                         color: DesignTokens.textSecondary
@@ -481,7 +470,7 @@ Item {
 
                     Text {
                         visible: !root.compact
-                        Layout.preferredWidth: root.metadataColumnWidth
+                        Layout.preferredWidth: root.albumColumnWidth
                         text: row.album
                         elide: Text.ElideRight
                         color: DesignTokens.textTertiary

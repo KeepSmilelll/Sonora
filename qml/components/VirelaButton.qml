@@ -68,17 +68,6 @@ Item {
             }
         }
 
-        // Top specular glint
-        Rectangle {
-            visible: !root.flat
-            anchors.top: parent.top
-            anchors.topMargin: 1
-            anchors.horizontalCenter: parent.horizontalCenter
-            width: Math.max(12, parent.width - 20)
-            height: 1
-            color: root.primary ? Qt.rgba(1, 1, 1, 0.34) : DesignTokens.borderSpecularTop
-        }
-
         RowLayout {
             id: contentRow
             anchors.centerIn: parent

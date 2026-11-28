@@ -8,9 +8,10 @@
 </context>
 <context>
     <name>SettingsView</name>
+    <message><source>Window Background Style</source><translation>Window Background Style</translation></message>
+    <message><source>Ambient Cover Glow</source><translation>Ambient Cover Glow</translation></message>
+    <message><source>Solid Minimal</source><translation>Solid Minimal</translation></message>
     <message><source>Auto-start Local Backends with Virela</source><translation>Auto-start Local Backends with Virela</translation></message>
-    <message><source>Trial / Copyright Unblock Fallback (/song/url/match)</source><translation>Trial / Copyright Unblock Fallback (/song/url/match)</translation></message>
-    <message><source>When your Netease backend only returns a 30–45s VIP preview, automatically query its /song/url/match endpoint for a full stream.</source><translation>When your Netease backend only returns a 30–45s VIP preview, automatically query its /song/url/match endpoint for a full stream.</translation></message>
     <message><source>Restart</source><translation>Restart</translation></message>
     <message><source>Netease Service Dir</source><translation>Netease Service Dir</translation></message>
     <message><source>Meting Service Dir</source><translation>Meting Service Dir</translation></message>
@@ -78,6 +79,7 @@ Drop audio files anywhere to start listening</translation></message>
 </context>
 <context>
     <name>OnlineMusicView</name>
+    <message><source>Loading curated playlists and new releases...</source><translation>Loading curated playlists and new releases...</translation></message>
     <message><source>Use the top search bar to find songs.</source><translation>Use the top search bar to find songs.</translation></message>
     <message><source>Open Playlist</source><translation>Open Playlist</translation></message>
     <message><source>Open</source><translation>Open</translation></message>

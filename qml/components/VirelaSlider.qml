@@ -12,6 +12,11 @@ Item {
     property int orientation: Qt.Horizontal
     property bool bipolar: false
     property color accentColor: DesignTokens.accent
+    property bool valueControlled: false
+    property bool showValueTooltip: false
+    property string valueTooltipText: ""
+    property bool _initialized: false
+    property bool _recentAdjust: false
     signal moved(real newValue)
 
     readonly property bool isVertical: orientation === Qt.Vertical
@@ -21,6 +26,23 @@ Item {
     implicitWidth: isVertical ? 26 : 120
     implicitHeight: isVertical ? 140 : 24
     opacity: enabled ? 1.0 : 0.38
+
+    Component.onCompleted: root._initialized = true
+    onValueChanged: if (root._initialized) root.pulseTooltip()
+
+    Timer {
+        id: adjustHideTimer
+        interval: 900
+        repeat: false
+        onTriggered: root._recentAdjust = false
+    }
+
+    function pulseTooltip() {
+        if (root.showValueTooltip && root.visible) {
+            root._recentAdjust = true
+            adjustHideTimer.restart()
+        }
+    }
 
     function snapValue(rawVal) {
         let clamped = Math.max(root.from, Math.min(root.to, rawVal))
@@ -41,9 +63,12 @@ Item {
             const span = Math.max(1, width - pad * 2)
             ratio = Math.max(0.0, Math.min(1.0, (mx - pad) / span))
         }
-        const nextVal = snapValue(root.from + ratio * root.range)
+        moveTo(snapValue(root.from + ratio * root.range))
+    }
+
+    function moveTo(nextVal) {
         if (Math.abs(nextVal - root.value) > 1e-5) {
-            root.value = nextVal
+            if (!root.valueControlled) root.value = nextVal
             root.moved(nextVal)
         }
     }
@@ -128,18 +153,54 @@ Item {
         enabled: root.enabled
         hoverEnabled: true
         cursorShape: root.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-        onPressed: (mouse) => root.updateFromMouse(mouse.x, mouse.y)
+        onPressed: (mouse) => {
+            root.pulseTooltip()
+            root.updateFromMouse(mouse.x, mouse.y)
+        }
         onPositionChanged: (mouse) => {
-            if (pressed) root.updateFromMouse(mouse.x, mouse.y)
+            if (pressed) {
+                root.pulseTooltip()
+                root.updateFromMouse(mouse.x, mouse.y)
+            }
         }
         onWheel: (wheel) => {
+            root.pulseTooltip()
             const step = root.stepSize > 0.0 ? root.stepSize : (root.range / 24.0)
             const dir = wheel.angleDelta.y > 0 ? 1.0 : -1.0
-            const nextVal = root.snapValue(root.value + dir * step)
-            if (Math.abs(nextVal - root.value) > 1e-5) {
-                root.value = nextVal
-                root.moved(nextVal)
-            }
+            root.moveTo(root.snapValue(root.value + dir * step))
+        }
+    }
+
+    Rectangle {
+        readonly property bool shown: root.showValueTooltip && (ma.pressed || ma.containsMouse || root._recentAdjust)
+        z: 60
+        visible: opacity > 0.01
+        opacity: shown ? 1.0 : 0.0
+        scale: shown ? 1.0 : 0.86
+        y: shown ? (-height - 6) : (-height - 1)
+        x: Math.max(-6, Math.min(root.width - width + 6, thumb.x + thumb.width * 0.5 - width * 0.5))
+        width: Math.max(36, tooltipLbl.implicitWidth + 12)
+        height: 20
+        radius: 10
+        color: DesignTokens.surfaceElevated
+        border.width: 1
+        border.color: DesignTokens.borderHighlight
+
+        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+        Behavior on scale {
+            NumberAnimation { duration: 160; easing.type: Easing.OutBack; easing.overshoot: 1.08 }
+        }
+        Behavior on y { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+        Text {
+            id: tooltipLbl
+            anchors.centerIn: parent
+            text: root.valueTooltipText
+            color: ma.pressed ? DesignTokens.accent : DesignTokens.textPrimary
+            font.family: DesignTokens.fontFamily
+            font.pixelSize: 10
+            font.weight: Font.DemiBold
+            font.features: ({ "tnum": 1 })
         }
     }
 }

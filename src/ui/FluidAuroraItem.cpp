@@ -16,6 +16,8 @@ constexpr int kGridCols = 14;
 constexpr int kGridRows = 9;
 constexpr int kQuadCount = (kGridCols - 1) * (kGridRows - 1);
 constexpr int kVertCount = kQuadCount * 6;
+constexpr int kIdleFrameIntervalMs = 66;
+constexpr int kSettleFrameIntervalMs = 16;
 
 void colorToFloat4(const QColor& c, float out[4]) noexcept {
     out[0] = static_cast<float>(c.redF());
@@ -41,7 +43,8 @@ unsigned char clampByte(float v) noexcept {
 FluidAuroraItem::FluidAuroraItem(QQuickItem* parent)
     : QQuickItem(parent) {
     setFlag(ItemHasContents, true);
-    frameTimer_.setInterval(66); // ~15 fps aligned to 2x 33ms UI tick when active & playing
+    frameTimer_.setTimerType(Qt::PreciseTimer);
+    frameTimer_.setInterval(kIdleFrameIntervalMs); // ~15 fps aligned to 2x 33ms UI tick when active & playing
     connect(&frameTimer_, &QTimer::timeout, this, &FluidAuroraItem::onFrameTick);
 }
 
@@ -187,9 +190,12 @@ void FluidAuroraItem::triggerSettle(int frames) {
 void FluidAuroraItem::updateTimerState() {
     QQuickWindow* win = window();
     const bool windowShown = win != nullptr && win->isVisible() && win->visibility() != QWindow::Minimized;
-    const bool visibleNow = isVisible() && active_ && windowShown && intensity_ > 0.01;
-    const bool shouldTick = visibleNow && (playing_ || settleFrames_ > 0);
+    const bool settling = settleFrames_ > 0;
+    const bool visibleNow = isVisible() && active_ && windowShown;
+    const bool shouldTick = visibleNow && (settling || (playing_ && intensity_ > 0.01));
     if (shouldTick) {
+        const int interval = settling ? kSettleFrameIntervalMs : kIdleFrameIntervalMs;
+        if (frameTimer_.interval() != interval) frameTimer_.setInterval(interval);
         if (!frameTimer_.isActive()) frameTimer_.start();
     } else {
         if (frameTimer_.isActive()) frameTimer_.stop();
@@ -207,7 +213,7 @@ void FluidAuroraItem::onFrameTick() {
         curEnergy_ = static_cast<float>(audioEnergy_);
         stateInitialized_ = true;
     } else {
-        constexpr float kLerp = 0.17f;
+        const float kLerp = settleFrames_ > 0 ? 0.14f : 0.17f;
         lerpFloat4(curP_, primaryColor_, kLerp);
         lerpFloat4(curS_, secondaryColor_, kLerp);
         lerpFloat4(curA_, accentColor_, kLerp);
@@ -217,16 +223,14 @@ void FluidAuroraItem::onFrameTick() {
         curEnergy_ += (static_cast<float>(audioEnergy_) - curEnergy_) * 0.28f;
     }
 
-    phase_ += playing_ ? (0.030f + 0.044f * curEnergy_) : 0.008f;
+    const float step = static_cast<float>(frameTimer_.interval()) / kIdleFrameIntervalMs;
+    phase_ += step * (playing_ ? (0.030f + 0.044f * curEnergy_) : 0.008f);
     if (phase_ > 628.3185f) {
         phase_ -= 628.3185f;
     }
 
-    if (!playing_) {
-        if (settleFrames_ > 0) --settleFrames_;
-        if (settleFrames_ <= 0) {
-            updateTimerState();
-        }
+    if (settleFrames_ > 0 && --settleFrames_ == 0) {
+        updateTimerState();
     }
     update();
 }
@@ -335,7 +339,7 @@ QSGNode* FluidAuroraItem::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*
             outG = outG * (1.0f - t2) + curA_[1] * t2;
             outB = outB * (1.0f - t2) + curA_[2] * t2;
 
-            // Keep transparent background pass-through when base alpha < 1 (Win11 Mica/Acrylic)
+            // Preserve transparency for callers that supply a translucent base color.
             const float outA = std::clamp(curB_[3] + (1.0f - curB_[3]) * energy * 0.88f, 0.0f, 1.0f);
 
             // Premultiplied RGBA for Qt SceneGraph QSGVertexColorMaterial

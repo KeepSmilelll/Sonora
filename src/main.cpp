@@ -3,6 +3,7 @@
 #include "core/MemoryStats.h"
 #include "core/PlaybackController.h"
 #include "core/ThemeManager.h"
+#include "core/WindowLayout.h"
 #include "library/CoverArtProvider.h"
 #include "library/LibraryDatabase.h"
 #include "library/LibraryScanner.h"
@@ -38,10 +39,14 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QScreen>
+#include <QStandardPaths>
+#include <QTemporaryDir>
 #include <QThread>
 #include <QTimer>
 #include <QUrl>
 #include <iostream>
+#include <optional>
 
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
@@ -147,11 +152,12 @@ private:
 
 int main(int argc, char* argv[]) {
 #ifdef _WIN32
-    // Direct3D 11 QRhi on Windows 10/11 for native DWM Mica compositing & low RAM
+    // Use the Direct3D 11 Qt Quick renderer on Windows.
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
 #endif
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
+    QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
     QGuiApplication app(argc, argv);
     // Strict 4 MB QPixmapCache ceiling (down from Qt's 10 MB default) to cap startup RSS
     QPixmapCache::setCacheLimit(4096);
@@ -172,13 +178,23 @@ int main(int argc, char* argv[]) {
                                 QStringLiteral("Load QML UI, report memory stats, and exit cleanly."));
     parser.addOption(smokeOpt);
     parser.process(app);
+    std::optional<QTemporaryDir> smokeProfile;
+    if (parser.isSet(smokeOpt)) {
+        // A running player must not intercept the startup smoke test.
+        QStandardPaths::setTestModeEnabled(true);
+        smokeProfile.emplace(QDir::temp().filePath(QStringLiteral("Virela-smoke-XXXXXX")));
+        if (!smokeProfile->isValid()) {
+            qCritical() << "Could not create the Virela smoke profile:" << smokeProfile->errorString();
+            return 1;
+        }
+    }
 
     QList<QUrl> launchUrls;
     for (const auto& argument : parser.positionalArguments()) {
         launchUrls.append(QUrl::fromUserInput(argument, QDir::currentPath()));
     }
 
-    const QString dataDir = virela::AppSettings::defaultDataDir();
+    const QString dataDir = smokeProfile ? smokeProfile->path() : virela::AppSettings::defaultDataDir();
     const QDir profile(dataDir);
     const auto profileHash = QCryptographicHash::hash(profile.canonicalPath().toUtf8(),
                                                      QCryptographicHash::Sha256).toHex();
@@ -211,7 +227,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    virela::AppSettings settings;
+    virela::AppSettings settings(profile.filePath(QStringLiteral("settings.json")));
     auto platform = virela::PlatformBridge::create();
 
     virela::LibraryDatabase libraryDb;
@@ -224,7 +240,7 @@ int main(int argc, char* argv[]) {
 
     virela::LibraryScanner libraryScanner(&libraryDb, coverProvider);
     virela::StreamCacheManager streamCache(
-        virela::AppSettings::defaultStreamCacheDir(),
+        profile.filePath(QStringLiteral("cache/streams")),
         static_cast<qint64>(settings.onlineCacheMaxMb()) * 1024LL * 1024LL);
     virela::OnlineMusicService onlineService(&settings, &streamCache);
     QObject::connect(&settings, &virela::AppSettings::onlineSettingsChanged, &streamCache, [&]() {
@@ -337,51 +353,56 @@ int main(int argc, char* argv[]) {
 
     qmlEngine.loadFromModule(QStringLiteral("Virela.UI"), QStringLiteral("Main"));
 
-    if (!qmlEngine.rootObjects().isEmpty()) {
-        if (auto* mainWin = qobject_cast<QQuickWindow*>(qmlEngine.rootObjects().constFirst())) {
-            platform->attachMainWindow(mainWin, 46);
-            mainWin->installEventFilter(new OutsideSearchFocusFilter(mainWin));
+    auto* mainWin = qmlEngine.rootObjects().isEmpty()
+        ? nullptr : qobject_cast<QQuickWindow*>(qmlEngine.rootObjects().constFirst());
+    if (mainWin) {
+        QScreen* scr = mainWin->screen() ? mainWin->screen() : QGuiApplication::primaryScreen();
+        const auto initial = virela::computeInitialWindowGeometry(
+            scr ? scr->availableGeometry() : QRect(0, 0, 1280, 720));
+        mainWin->setMinimumSize(initial.minimumSize);
+        mainWin->setGeometry(initial.geometry);
+        platform->attachMainWindow(mainWin, 46);
+        mainWin->installEventFilter(new OutsideSearchFocusFilter(mainWin));
+        platform->setWindowBackdrop(mainWin, themeManager.backdropMode(), themeManager.isDark());
+        mainWin->show();
+        platform->initMediaSession(mainWin);
+        platform->initTray(QStringLiteral("Virela"));
+        platform->setGlobalHotkeysEnabled(settings.globalHotkeysEnabled());
+
+        auto updateBackdrop = [mainWin, &platform, &themeManager]() {
             platform->setWindowBackdrop(mainWin, themeManager.backdropMode(), themeManager.isDark());
-            mainWin->show();
-            platform->initMediaSession(mainWin);
-            platform->initTray(QStringLiteral("Virela"));
-            platform->setGlobalHotkeysEnabled(settings.globalHotkeysEnabled());
+        };
+        QObject::connect(&themeManager, &virela::ThemeManager::themeChanged, mainWin, updateBackdrop);
+        QObject::connect(&themeManager, &virela::ThemeManager::backdropChanged, mainWin, updateBackdrop);
+        QObject::connect(platform.get(), &virela::PlatformBridge::quitRequested, &app,
+                         [mainWin, &platform]() {
+            platform->markQuitting();
+            platform->shutdownTray();
+            if (mainWin) {
+                mainWin->setProperty("forceQuit", true);
+                mainWin->setProperty("miniModeOpen", false);
+                mainWin->close();
+            }
+            QCoreApplication::exit(0);
+        }, Qt::QueuedConnection);
 
-            auto updateBackdrop = [mainWin, &platform, &themeManager]() {
-                platform->setWindowBackdrop(mainWin, themeManager.backdropMode(), themeManager.isDark());
-            };
-            QObject::connect(&themeManager, &virela::ThemeManager::themeChanged, mainWin, updateBackdrop);
-            QObject::connect(&themeManager, &virela::ThemeManager::backdropChanged, mainWin, updateBackdrop);
-            QObject::connect(platform.get(), &virela::PlatformBridge::quitRequested, &app,
-                             [mainWin, &platform]() {
-                platform->markQuitting();
-                platform->shutdownTray();
-                if (mainWin) {
-                    mainWin->setProperty("forceQuit", true);
-                    mainWin->setProperty("miniModeOpen", false);
-                    mainWin->close();
-                }
-                QCoreApplication::exit(0);
-            }, Qt::QueuedConnection);
+        receiveLaunches(instanceServer, *mainWin, playerController);
 
-            receiveLaunches(instanceServer, *mainWin, playerController);
-
-            // Reclaim transient QML/cover caches & trim Win32 working set when minimized to tray
-            QObject::connect(mainWin, &QWindow::visibleChanged, mainWin,
-                             [mainWin, coverProvider, &qmlEngine, &platform](bool isVisible) {
-                if (isVisible || platform->isQuitting()) return;
-                QTimer::singleShot(350, mainWin, [mainWin, coverProvider, &qmlEngine, &platform]() {
-                    if (!mainWin->isVisible() && !platform->isQuitting()) {
-                        coverProvider->clearRamCache();
-                        qmlEngine.trimComponentCache();
-                        qmlEngine.collectGarbage();
+        // Reclaim transient QML/cover caches & trim Win32 working set when minimized to tray
+        QObject::connect(mainWin, &QWindow::visibleChanged, mainWin,
+                         [mainWin, coverProvider, &qmlEngine, &platform](bool isVisible) {
+            if (isVisible || platform->isQuitting()) return;
+            QTimer::singleShot(350, mainWin, [mainWin, coverProvider, &qmlEngine, &platform]() {
+                if (!mainWin->isVisible() && !platform->isQuitting()) {
+                    coverProvider->clearRamCache();
+                    qmlEngine.trimComponentCache();
+                    qmlEngine.collectGarbage();
 #ifdef Q_OS_WIN
-                        SetProcessWorkingSetSize(GetCurrentProcess(), static_cast<SIZE_T>(-1), static_cast<SIZE_T>(-1));
+                    SetProcessWorkingSetSize(GetCurrentProcess(), static_cast<SIZE_T>(-1), static_cast<SIZE_T>(-1));
 #endif
-                    }
-                });
+                }
             });
-        }
+        });
     }
 
     if (!launchUrls.isEmpty()) {
@@ -389,9 +410,15 @@ int main(int argc, char* argv[]) {
     }
 
     if (parser.isSet(smokeOpt)) {
-        QTimer::singleShot(150, &app, [&]() {
+        QTimer::singleShot(150, &app, [mainWin, &platform]() {
+            if (!mainWin) {
+                QCoreApplication::exit(1);
+                return;
+            }
             const auto mem = virela::queryProcessMemory();
-            std::cout << "[SMOKE] Virela Full App loaded cleanly. RSS="
+            std::cout << "[SMOKE] Virela Full App loaded cleanly. Window="
+                      << mainWin->width() << 'x' << mainWin->height()
+                      << " @" << mainWin->devicePixelRatio() << "x, RSS="
                       << mem.workingSetMb << " MB, Private="
                       << mem.privateBytesMb << " MB" << std::endl;
             platform->requestQuit();

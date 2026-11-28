@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Effects
 import Virela.UI
 
 // Sculpted spinning circular vinyl LP disc with concentric micro-grooves, circular cover label,
@@ -101,24 +100,25 @@ Item {
                 color: Qt.rgba(1.0, 1.0, 1.0, 0.16)
             }
 
-            // Circular center record label (album artwork or accent fallback)
+            // Circular center record label
             Rectangle {
                 id: labelBox
                 anchors.centerIn: parent
                 width: Math.round(parent.width * (root.compact ? 0.72 : 0.64))
                 height: width
                 radius: width * 0.5
-                color: DesignTokens.isDark
-                    ? Qt.tint("#1b1d29", DesignTokens.accentSoft)
-                    : Qt.tint("#e9ecf6", DesignTokens.accentSoft)
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: "#2e3240" }
+                    GradientStop { position: 0.5; color: "#1c1f29" }
+                    GradientStop { position: 1.0; color: "#262a37" }
+                }
 
                 Rectangle {
                     id: labelMask
                     anchors.fill: parent
                     radius: labelBox.radius
                     visible: false
-                    // MultiEffect needs the mask texture provider from the start.
-                    layer.enabled: true
+                    layer.enabled: coverImg.status === Image.Ready
                     layer.smooth: true
                 }
 
@@ -133,17 +133,29 @@ Item {
                     visible: false
                 }
 
-                MultiEffect {
+                Loader {
                     anchors.fill: coverImg
-                    visible: coverImg.status === Image.Ready
-                    source: coverImg
-                    maskEnabled: true
-                    maskSource: labelMask
-                    maskThresholdMin: 0.5
-                    maskSpreadAtMin: 1.0
+                    active: coverImg.status === Image.Ready
+                    onActiveChanged: {
+                        if (active) {
+                            setSource(Qt.resolvedUrl("VinylCoverMask.qml"), {
+                                sourceItem: coverImg,
+                                maskItem: labelMask
+                            })
+                        } else {
+                            source = ""
+                        }
+                    }
+                    Component.onCompleted: {
+                        if (active) {
+                            setSource(Qt.resolvedUrl("VinylCoverMask.qml"), {
+                                sourceItem: coverImg,
+                                maskItem: labelMask
+                            })
+                        }
+                    }
                 }
 
-                // Fallback inner vinyl label ring + music glyph when artwork is unavailable
                 Rectangle {
                     visible: coverImg.status !== Image.Ready
                     anchors.centerIn: parent
@@ -152,24 +164,51 @@ Item {
                     radius: width * 0.5
                     color: "transparent"
                     border.width: 1
-                    border.color: Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, 0.30)
+                    border.color: Qt.rgba(1.0, 1.0, 1.0, 0.16)
                 }
 
-                IconGlyph {
+                Rectangle {
+                    visible: !root.compact && coverImg.status !== Image.Ready
                     anchors.centerIn: parent
-                    name: "music"
-                    size: Math.max(12, Math.round(labelBox.width * 0.36))
-                    color: DesignTokens.accent
-                    visible: coverImg.status !== Image.Ready
+                    width: Math.round(labelBox.width * 0.50)
+                    height: width
+                    radius: width * 0.5
+                    color: "transparent"
+                    border.width: 1
+                    border.color: Qt.rgba(1.0, 1.0, 1.0, 0.09)
+                }
+
+                Text {
+                    visible: !root.compact && coverImg.status !== Image.Ready
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    y: Math.round(labelBox.height * 0.21)
+                    text: "VIRELA"
+                    color: Qt.rgba(1.0, 1.0, 1.0, 0.42)
+                    font.family: DesignTokens.fontFamily
+                    font.pixelSize: Math.max(8, Math.round(labelBox.width * 0.07))
+                    font.letterSpacing: 2.0
+                    font.weight: Font.DemiBold
+                }
+
+                Text {
+                    visible: !root.compact && coverImg.status !== Image.Ready
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    y: Math.round(labelBox.height * 0.72)
+                    text: "33⅓ RPM"
+                    color: Qt.rgba(1.0, 1.0, 1.0, 0.24)
+                    font.family: DesignTokens.fontFamily
+                    font.pixelSize: Math.max(7, Math.round(labelBox.width * 0.055))
+                    font.letterSpacing: 1.0
                 }
 
                 // Crisp label edge rim
                 Rectangle {
+                    visible: true
                     anchors.fill: parent
                     radius: labelBox.radius
                     color: "transparent"
                     border.width: 1
-                    border.color: Qt.rgba(1.0, 1.0, 1.0, 0.22)
+                    border.color: Qt.rgba(1.0, 1.0, 1.0, coverImg.status === Image.Ready ? 0.22 : 0.14)
                 }
             }
 

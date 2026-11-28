@@ -266,9 +266,7 @@ Drop audio files anywhere to start listening</source><translation>播放队列�
     <message><source>Follow System</source><translation>跟随系统</translation></message>
     <message><source>Dark</source><translation>深色模式</translation></message>
     <message><source>Light</source><translation>浅色模式</translation></message>
-    <message><source>Window Backdrop Material</source><translation>窗口磨砂材质</translation></message>
-    <message><source>Windows 11 Mica</source><translation>Windows 11 原生 Mica</translation></message>
-    <message><source>Windows 11 Acrylic</source><translation>Windows 11 原生 Acrylic</translation></message>
+    <message><source>Window Background Style</source><translation>窗口背景风格</translation></message>
     <message><source>Ambient Cover Glow</source><translation>轻量封面氛围渐变</translation></message>
     <message><source>Solid Minimal</source><translation>极简纯色</translation></message>
     <message><source>Interface Language</source><translation>界面语言</translation></message>
@@ -290,20 +288,12 @@ Drop audio files anywhere to start listening</source><translation>播放队列�
     <message><source>Direct Stream URL Priority</source><translation>直链解析优先级</translation></message>
     <message><source>Netease API First</source><translation>Netease API 优先</translation></message>
     <message><source>Meting API First</source><translation>Meting API 优先</translation></message>
-    <message><source>Automatic Backend &amp; Quality Fallback</source><translation>自动回退策略</translation></message>
-    <message><source>Automatically fall back to the secondary backend or lower bitrate if a stream URL is unavailable or a VIP preview.</source><translation>当直链不可用或仅返回试听片段时，自动回退至备用后端或降级音质。</translation></message>
-    <message><source>Trial / Copyright Unblock Fallback (/song/url/match)</source><translation>试听 / 无版权自动匹配兜底 (/song/url/match)</translation></message>
-    <message><source>When your Netease backend only returns a 30–45s VIP preview, automatically query its /song/url/match endpoint for a full stream.</source><translation>当主后端仅返回 30–45 秒试听片段或无直链时，自动向其 /song/url/match 接口请求完整音源。</translation></message>
     <message><source>Default Streaming &amp; Download Quality</source><translation>默认播放与下载音质</translation></message>
     <message><source>Standard (128k)</source><translation>标准 (128k)</translation></message>
     <message><source>ExHigh (320k)</source><translation>极高 (320k)</translation></message>
     <message><source>Lossless (FLAC)</source><translation>无损 (FLAC)</translation></message>
     <message><source>Hi-Res</source><translation>Hi-Res</translation></message>
-    <message><source>Optional Local Cookie (MUSIC_U=...)</source><translation>可选本地 Cookie (MUSIC_U=...)</translation></message>
-    <message><source>Hide</source><translation>隐藏</translation></message>
-    <message><source>Show</source><translation>显示</translation></message>
     <message><source>Clear</source><translation>清空</translation></message>
-    <message><source>Stored locally in settings.json; never uploaded to third parties</source><translation>仅保存于本地 settings.json，绝不上传至任何第三方</translation></message>
     <message><source>Stream Cache LRU Limit</source><translation>边播边缓 LRU 磁盘上限</translation></message>
     <message><source>Local Download Directory</source><translation>本地下载目录</translation></message>
     <message><source>Downloads embed cover art &amp; metadata, save .yrc/.lrc lyrics sidecars, and auto-index into your local library.</source><translation>下载后自动写入封面与元数据、生成同名 .yrc/.lrc 歌词并增量入库。</translation></message>
@@ -339,7 +329,6 @@ Drop audio files anywhere to start listening</source><translation>播放队列�
     <message><source>Online Music</source><translation>在线音乐</translation></message>
     <message><source>Downloading %1</source><translation>正在下载 %1 首</translation></message>
     <message><source>Loading...</source><translation>加载中…</translation></message>
-    <message><source>Sources</source><translation>音源设置</translation></message>
     <message><source>Search songs, albums, artists, playlists...</source><translation>搜索单曲、专辑、歌手、歌单…</translation></message>
     <message><source>Search</source><translation>搜索</translation></message>
     <message><source>Playlist ID or link...</source><translation>粘贴网易云歌单 ID 或链接…</translation></message>
@@ -365,11 +354,6 @@ Drop audio files anywhere to start listening</source><translation>播放队列�
     <message><source>Download to Library</source><translation>下载到本地曲库</translation></message>
     <message><source>Track Technical Info</source><translation>音频技术详情</translation></message>
     <message><source>Discover</source><translation>发现</translation></message>
-    <message><source>Refresh</source><translation>刷新</translation></message>
-    <message><source>Standard</source><translation>标准</translation></message>
-    <message><source>ExHigh</source><translation>极高</translation></message>
-    <message><source>Lossless</source><translation>无损</translation></message>
-    <message><source>Hi-Res</source><translation>Hi-Res</translation></message>
     <message><source>Online discovery is not configured yet. Showing your local music highlights below.</source><translation>暂未配置在线音源，下方已为您展示本地音乐精选。</translation></message>
     <message><source>Meting source active. Use the top search bar to find tracks, or configure Netease API for personalized discovery.</source><translation>Meting 音源已启用。请使用顶部搜索框查找歌曲，或配置 Netease API 以开启个性化推荐。</translation></message>
     <message><source>Online discovery is temporarily unreachable (%1). Showing local music highlights.</source><translation>在线发现服务暂时不可达（%1），下方已为您展示本地音乐精选。</translation></message>
@@ -381,8 +365,7 @@ Drop audio files anywhere to start listening</source><translation>播放队列�
     <message><source>Continue Listening</source><translation>继续收听</translation></message>
     <message><source>Recently Added</source><translation>最近添加</translation></message>
     <message><source>Open Library</source><translation>进入曲库</translation></message>
-    <message><source>Loading trending charts, curated playlists, and new releases...</source><translation>正在加载热搜榜、精选歌单与新歌速递…</translation></message>
-    <message><source>Trending Searches</source><translation>大家都在搜</translation></message>
+    <message><source>Loading curated playlists and new releases...</source><translation>正在加载精选歌单与新歌速递…</translation></message>
     <message><source>Featured Playlists</source><translation>推荐歌单</translation></message>
     <message><source>New Releases</source><translation>新歌速递</translation></message>
     <message><source>Local Albums</source><translation>本地专辑</translation></message>

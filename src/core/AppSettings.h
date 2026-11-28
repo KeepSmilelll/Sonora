@@ -187,7 +187,7 @@ signals:
 private:
     QString configPath_;
     QString themeMode_ = QStringLiteral("system");      // "system" | "dark" | "light"
-    QString backdropMode_ = QStringLiteral("mica");     // "mica" | "acrylic" | "ambient" | "solid"
+    QString backdropMode_ = QStringLiteral("ambient");  // "ambient" | "solid"
     QString language_ = QStringLiteral("zh_CN");        // "zh_CN" | "en_US"
     double volume_ = 0.85;
     bool shuffle_ = false;
