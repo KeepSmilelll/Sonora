@@ -52,6 +52,7 @@ public:
     void resetAmbientColors();
 
     Q_INVOKABLE void toggleDarkLight();
+    Q_INVOKABLE void trimTransientMemory();
 
 signals:
     void themeChanged();

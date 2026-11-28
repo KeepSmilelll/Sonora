@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Layouts
-import QtQuick.Effects
 import Virela.UI
 
 GlassPanel {
@@ -15,6 +14,7 @@ GlassPanel {
     property string stageTab: "lyrics"
     property real immersiveFactor: 0.0
     property bool hideCoverForHero: false
+    property string currentDownloadStatus: "none"
 
     readonly property bool showTrackIdentity: stageMode === "collapsed" || !controller.hasTrack
 
@@ -23,6 +23,7 @@ GlassPanel {
     signal toggleQueue()
     signal openTrackInfo()
     signal toggleFavorite()
+    signal downloadCurrentRequested()
     signal coverClicked()
 
     function coverAnchorItem() {
@@ -119,18 +120,18 @@ GlassPanel {
         anchors.fill: parent
         anchors.leftMargin: root.compact ? 12 : 16
         anchors.rightMargin: root.compact ? 12 : 16
-        spacing: root.compact ? 12 : 23
+        spacing: root.compact ? 10 : 16
 
         // Left: Cover and track metadata (auto-collapses cleanly when FocusStage displays cover)
         RowLayout {
             id: trackIdentityBox
             Layout.fillWidth: false
             Layout.fillHeight: true
-            Layout.preferredWidth: root.showTrackIdentity ? (root.compact ? 190 : 254) : 0
+            Layout.preferredWidth: root.showTrackIdentity ? (root.compact ? 184 : 236) : 0
             Layout.maximumWidth: Layout.preferredWidth
             opacity: root.showTrackIdentity ? 1.0 : 0.0
             visible: Layout.preferredWidth > 2
-            clip: !root.showTrackIdentity || width < (root.compact ? 186 : 250)
+            clip: !root.showTrackIdentity || width < (root.compact ? 180 : 232)
             spacing: 10
 
             Behavior on Layout.preferredWidth {
@@ -215,7 +216,7 @@ GlassPanel {
 
                     Item {
                         id: favBtn
-                        visible: root.controller.hasTrack && root.controller.trackId >= 0
+                        visible: root.controller.hasTrack
                         implicitWidth: 24
                         implicitHeight: 24
                         property real popScale: 1.0
@@ -250,15 +251,27 @@ GlassPanel {
                     }
                 }
 
-                Text {
+                RowLayout {
                     Layout.fillWidth: true
-                    text: root.controller.hasTrack
-                        ? (root.controller.trackArtist.length > 0 ? root.controller.trackArtist : qsTr("Unknown Artist"))
-                        : qsTr("Drop audio files or folders to play")
-                    elide: Text.ElideRight
-                    color: DesignTokens.textSecondary
-                    font.family: DesignTokens.fontFamily
-                    font.pixelSize: 12
+                    spacing: 4
+
+                    IconGlyph {
+                        visible: root.controller.hasTrack && root.controller.trackIsOnline
+                        name: "cloud"
+                        size: 11
+                        color: DesignTokens.accentLight
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.controller.hasTrack
+                            ? (root.controller.trackArtist.length > 0 ? root.controller.trackArtist : qsTr("Unknown Artist"))
+                            : qsTr("Search online music or drop local audio files")
+                        elide: Text.ElideRight
+                        color: DesignTokens.textSecondary
+                        font.family: DesignTokens.fontFamily
+                        font.pixelSize: 12
+                    }
                 }
             }
         }
@@ -309,6 +322,31 @@ GlassPanel {
                             name: root.controller.isPlaying ? "pause" : "play"
                             size: 19
                             color: DesignTokens.playbackInk
+                        }
+                    }
+
+                    // Streaming buffering orbiting arc
+                    Item {
+                        id: bufferSpinner
+                        anchors.fill: parent
+                        anchors.margins: -3
+                        visible: root.controller.isBuffering
+
+                        Rectangle {
+                            width: 6
+                            height: 6
+                            radius: 3
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            anchors.top: parent.top
+                            color: DesignTokens.accentLight
+                        }
+
+                        RotationAnimation on rotation {
+                            running: root.controller.isBuffering
+                            from: 0
+                            to: 360
+                            duration: 900
+                            loops: Animation.Infinite
                         }
                     }
 
@@ -371,6 +409,15 @@ GlassPanel {
                         radius: height / 2
                         color: DesignTokens.playbackRail
                         Behavior on height { NumberAnimation { duration: 130; easing.type: Easing.OutCubic } }
+
+                        // Stream cache buffered progress rail
+                        Rectangle {
+                            visible: root.controller.trackIsOnline && root.controller.bufferedRatio > 0.001
+                            width: parent.width * Math.max(0.0, Math.min(1.0, root.controller.bufferedRatio))
+                            height: parent.height
+                            radius: parent.radius
+                            color: Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, 0.34)
+                        }
 
                         // Ghost hover preview bar
                         Rectangle {
@@ -471,14 +518,14 @@ GlassPanel {
             }
         }
 
-        // Right: Lyrics, EQ, Info, Queue, Mute + VirelaSlider Volume
+        // Right: Lyrics, EQ, Download, Info, Queue, Mute + VirelaSlider Volume
         RowLayout {
+            id: rightTools
             Layout.fillWidth: false
-            Layout.preferredWidth: root.compact ? 214 : 252
-            Layout.alignment: Qt.AlignRight
-            spacing: root.compact ? 4 : 6
-
-            Item { Layout.fillWidth: true }
+            Layout.preferredWidth: rightTools.implicitWidth
+            Layout.minimumWidth: rightTools.implicitWidth
+            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+            spacing: root.compact ? 3 : 4
 
             DockIconBtn {
                 iconName: "lyrics"
@@ -492,6 +539,24 @@ GlassPanel {
                 iconSize: 15
                 active: root.eqOpen
                 onClicked: root.toggleEq()
+            }
+
+            DockIconBtn {
+                readonly property bool isDlActive: root.currentDownloadStatus === "downloading" || root.currentDownloadStatus === "queued"
+                iconName: root.currentDownloadStatus === "done" ? "check" : "download"
+                iconSize: 15
+                active: root.currentDownloadStatus === "done"
+                visible: root.controller.hasTrack && root.controller.trackIsOnline
+                enabled: !isDlActive
+                opacity: isDlActive ? 0.55 : 1.0
+                SequentialAnimation on opacity {
+                    running: root.controller.hasTrack && root.controller.trackIsOnline
+                        && (root.currentDownloadStatus === "downloading" || root.currentDownloadStatus === "queued")
+                    loops: Animation.Infinite
+                    NumberAnimation { from: 0.35; to: 0.90; duration: 650; easing.type: Easing.InOutSine }
+                    NumberAnimation { from: 0.90; to: 0.35; duration: 650; easing.type: Easing.InOutSine }
+                }
+                onClicked: root.downloadCurrentRequested()
             }
 
             DockIconBtn {
@@ -515,7 +580,9 @@ GlassPanel {
             }
 
             VirelaSlider {
-                Layout.preferredWidth: root.compact ? 58 : 78
+                Layout.preferredWidth: root.compact ? 64 : 76
+                Layout.minimumWidth: root.compact ? 56 : 68
+                Layout.rightMargin: 2
                 from: 0.0
                 to: 1.0
                 value: root.controller.muted ? 0.0 : root.controller.volume

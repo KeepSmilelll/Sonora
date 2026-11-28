@@ -37,6 +37,17 @@ struct PlaylistSummary {
     int64_t createdAt = 0;
 };
 
+struct PinnedOnlinePlaylist {
+    int64_t id = -1;
+    QString source = QStringLiteral("netease");
+    QString remoteId;
+    QString name;
+    QString creator;
+    QString coverUrl;
+    int trackCount = 0;
+    int64_t pinnedAt = 0;
+};
+
 class LibraryDatabase {
 public:
     LibraryDatabase() = default;
@@ -70,12 +81,22 @@ public:
     QVector<TrackInfo> queryRecentlyPlayed(int limit = 100) const;
     QVector<TrackInfo> queryRecentlyAdded(int limit = 100) const;
     bool findTrackByPath(const QString& filePath, TrackInfo& out) const;
+    bool findTrackById(int64_t trackId, TrackInfo& out) const;
 
     QVector<AlbumSummary> queryAlbums(const QString& searchQuery = {}) const;
     QVector<ArtistSummary> queryArtists(const QString& searchQuery = {}) const;
 
     bool setFavorite(int64_t trackId, bool favorite);
     bool recordPlayback(int64_t trackId);
+
+    // Cross-source online tracks, favorites, playback stats & local upgrade
+    int64_t upsertOnlineTrack(const TrackInfo& track);
+    bool findOnlineTrack(const QString& source, const QString& remoteId, TrackInfo& out) const;
+    bool findLocalTrackByRemoteId(const QString& remoteId, TrackInfo& out) const;
+    bool isOnlineTrackFavorite(const QString& source, const QString& remoteId) const;
+    bool setOnlineTrackFavorite(const TrackInfo& track, bool favorite, int64_t* trackIdOut = nullptr);
+    bool recordOnlinePlayback(const TrackInfo& track, int64_t* trackIdOut = nullptr);
+    bool upgradeOnlineTrackToLocal(const QString& source, const QString& remoteId, TrackInfo& localTrack);
 
     // Playlists
     QVector<PlaylistSummary> listPlaylists() const;
@@ -86,9 +107,17 @@ public:
     bool removePlaylistItem(int64_t playlistId, int position);
     QVector<TrackInfo> queryPlaylistTracks(int64_t playlistId) const;
 
+    // Pinned online playlists
+    bool pinOnlinePlaylist(const PinnedOnlinePlaylist& playlist);
+    bool unpinOnlinePlaylist(const QString& source, const QString& remoteId);
+    bool isOnlinePlaylistPinned(const QString& source, const QString& remoteId) const;
+    QVector<PinnedOnlinePlaylist> listPinnedOnlinePlaylists() const;
+
 private:
     bool execSql(const char* sql) const;
     bool initSchema();
+    int64_t upsertOnlineTrackLocked(const TrackInfo& track);
+    int64_t findUpgradedLocalIdLocked(const QString& remoteId) const;
 
     sqlite3* db_ = nullptr;
     mutable std::mutex mutex_;

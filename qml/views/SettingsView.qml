@@ -10,12 +10,25 @@ Item {
     required property var lib
     required property var settingsObj
     required property var themeObj
+    required property var onlineCtrl
 
     signal addFolderRequested()
+    signal selectDownloadDirRequested()
+    signal selectNeteaseServiceDirRequested()
+    signal selectMetingServiceDirRequested()
+
+    property bool showCookieText: false
+    property string activeSettingsTab: "online" // "online" | "audio" | "local" | "appearance"
+
+    function showOnlineSources() {
+        activeSettingsTab = "online"
+        settingsScroll.contentY = 0
+    }
 
     Component.onCompleted: {
         root.controller.refreshAudioDevices()
         root.controller.refreshMemoryStats()
+        root.onlineCtrl.refreshCacheStats()
     }
 
     Timer {
@@ -82,21 +95,18 @@ Item {
         }
     }
 
-    Flickable {
+    ColumnLayout {
         anchors.fill: parent
-        contentWidth: width
-        contentHeight: mainCol.implicitHeight + 48
-        clip: true
-        boundsBehavior: Flickable.StopAtBounds
-        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        spacing: 0
 
+        // Pinned Settings Header + 4-Tab Segmented Navigation
         ColumnLayout {
-            id: mainCol
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            anchors.margins: 22
-            spacing: 16
+            Layout.fillWidth: true
+            Layout.leftMargin: 22
+            Layout.rightMargin: 22
+            Layout.topMargin: 22
+            Layout.bottomMargin: 12
+            spacing: 12
 
             RowLayout {
                 Layout.fillWidth: true
@@ -117,10 +127,103 @@ Item {
                 }
             }
 
-            // 1. Audio Output & WASAPI Audiophile Settings
-            SectionCard {
-                iconName: "wave"
-                title: qsTr("Audio Engine & WASAPI Output")
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: segFlow.implicitHeight + 8
+                radius: DesignTokens.radiusLg
+                color: DesignTokens.stageSurfaceBg
+                border.width: 1
+                border.color: DesignTokens.hairlineBorder
+
+                Flow {
+                    id: segFlow
+                    anchors.fill: parent
+                    anchors.margins: 4
+                    spacing: 4
+
+                    Repeater {
+                        model: [
+                            { key: "online",     icon: "cloud",    label: qsTr("Online & Cache") },
+                            { key: "audio",      icon: "wave",     label: qsTr("Audio & Output") },
+                            { key: "local",      icon: "folder",   label: qsTr("Local Library") },
+                            { key: "appearance", icon: "sun",      label: qsTr("Appearance & Desktop") }
+                        ]
+                        delegate: Rectangle {
+                            id: segTab
+                            required property var modelData
+                            readonly property bool active: root.activeSettingsTab === modelData.key
+                            implicitWidth: segRow.implicitWidth + 24
+                            implicitHeight: 32
+                            radius: DesignTokens.radiusMd
+                            color: active
+                                ? DesignTokens.surfaceSelected
+                                : (segMa.containsMouse ? DesignTokens.surfaceHover : "transparent")
+                            border.width: active ? 1 : 0
+                            border.color: Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, 0.34)
+                            Behavior on color { ColorAnimation { duration: 120 } }
+
+                            RowLayout {
+                                id: segRow
+                                anchors.centerIn: parent
+                                spacing: 7
+
+                                IconGlyph {
+                                    name: segTab.modelData.icon
+                                    size: 13
+                                    color: segTab.active ? DesignTokens.accent : DesignTokens.textSecondary
+                                }
+                                Text {
+                                    text: segTab.modelData.label
+                                    color: segTab.active ? DesignTokens.accentLight : DesignTokens.textSecondary
+                                    font.family: DesignTokens.fontFamily
+                                    font.pixelSize: 12
+                                    font.weight: segTab.active ? Font.DemiBold : Font.Medium
+                                }
+                            }
+
+                            MouseArea {
+                                id: segMa
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    if (root.activeSettingsTab !== segTab.modelData.key) {
+                                        root.activeSettingsTab = segTab.modelData.key
+                                        settingsScroll.contentY = 0
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Flickable {
+            id: settingsScroll
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            contentWidth: width
+            contentHeight: mainCol.implicitHeight + 36
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+            ColumnLayout {
+                id: mainCol
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.leftMargin: 22
+                anchors.rightMargin: 22
+                anchors.topMargin: 2
+                spacing: 16
+
+                // 1. Audio Output & WASAPI Audiophile Settings
+                SectionCard {
+                    visible: root.activeSettingsTab === "audio"
+                    iconName: "wave"
+                    title: qsTr("Audio Engine & WASAPI Output")
 
                 RowLayout {
                     Layout.fillWidth: true
@@ -254,6 +357,7 @@ Item {
 
             // 2. Appearance, Material & Language
             SectionCard {
+                visible: root.activeSettingsTab === "appearance"
                 iconName: "sun"
                 title: qsTr("Appearance & Language")
 
@@ -340,8 +444,564 @@ Item {
                 }
             }
 
-            // 3. Music Library Folders
+            // 3. Online Sources & Stream Cache
             SectionCard {
+                id: onlineSourcesCard
+                visible: root.activeSettingsTab === "online"
+                iconName: "cloud"
+                title: qsTr("Online Sources & Cache")
+
+                // NeteaseCloudMusicApi URL
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 5
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        Text {
+                            Layout.fillWidth: true
+                            text: qsTr("Netease API URL (Primary Backend)")
+                            color: DesignTokens.textPrimary
+                            font.family: DesignTokens.fontFamily
+                            font.pixelSize: 13
+                            font.weight: Font.Medium
+                        }
+                        Text {
+                            visible: root.onlineCtrl.neteaseTestStatus.length > 0
+                            text: root.onlineCtrl.neteaseTestStatus
+                            color: root.onlineCtrl.neteaseTestOk ? DesignTokens.badgeTeal : DesignTokens.textTertiary
+                            font.family: DesignTokens.fontFamily
+                            font.pixelSize: 11
+                            font.weight: Font.Medium
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: 36
+                        radius: 10
+                        color: DesignTokens.surfaceInput
+                        border.width: 1
+                        border.color: neteaseUrlInput.activeFocus ? DesignTokens.accent : DesignTokens.borderOuter
+
+                        TextInput {
+                            id: neteaseUrlInput
+                            anchors.fill: parent
+                            anchors.leftMargin: 12
+                            anchors.rightMargin: 12
+                            verticalAlignment: TextInput.AlignVCenter
+                            text: root.settingsObj.onlineNeteaseApiUrl
+                            color: DesignTokens.textPrimary
+                            selectionColor: DesignTokens.accent
+                            selectedTextColor: "#ffffff"
+                            selectByMouse: true
+                            font.family: DesignTokens.fontFamily
+                            font.pixelSize: 12
+                            clip: true
+                            onEditingFinished: root.settingsObj.onlineNeteaseApiUrl = text
+
+                            Text {
+                                anchors.fill: parent
+                                verticalAlignment: Text.AlignVCenter
+                                text: "http://127.0.0.1:3000"
+                                color: DesignTokens.textTertiary
+                                font: neteaseUrlInput.font
+                                visible: neteaseUrlInput.text.length === 0 && !neteaseUrlInput.inputMethodComposing
+                            }
+                        }
+                    }
+                }
+
+                // Meting API URL (Optional)
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 5
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        Text {
+                            Layout.fillWidth: true
+                            text: qsTr("Meting API URL (Optional Direct URL & Fallback)")
+                            color: DesignTokens.textPrimary
+                            font.family: DesignTokens.fontFamily
+                            font.pixelSize: 13
+                            font.weight: Font.Medium
+                        }
+                        Text {
+                            visible: root.onlineCtrl.metingTestStatus.length > 0
+                            text: root.onlineCtrl.metingTestStatus
+                            color: root.onlineCtrl.metingTestOk ? DesignTokens.badgeTeal : DesignTokens.textTertiary
+                            font.family: DesignTokens.fontFamily
+                            font.pixelSize: 11
+                            font.weight: Font.Medium
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: 36
+                        radius: 10
+                        color: DesignTokens.surfaceInput
+                        border.width: 1
+                        border.color: metingUrlInput.activeFocus ? DesignTokens.accent : DesignTokens.borderOuter
+
+                        TextInput {
+                            id: metingUrlInput
+                            anchors.fill: parent
+                            anchors.leftMargin: 12
+                            anchors.rightMargin: 12
+                            verticalAlignment: TextInput.AlignVCenter
+                            text: root.settingsObj.onlineMetingApiUrl
+                            color: DesignTokens.textPrimary
+                            selectionColor: DesignTokens.accent
+                            selectedTextColor: "#ffffff"
+                            selectByMouse: true
+                            font.family: DesignTokens.fontFamily
+                            font.pixelSize: 12
+                            clip: true
+                            onEditingFinished: root.settingsObj.onlineMetingApiUrl = text
+
+                            Text {
+                                anchors.fill: parent
+                                verticalAlignment: Text.AlignVCenter
+                                text: "http://127.0.0.1:3001/api"
+                                color: DesignTokens.textTertiary
+                                font: metingUrlInput.font
+                                visible: metingUrlInput.text.length === 0 && !metingUrlInput.inputMethodComposing
+                            }
+                        }
+                    }
+                }
+
+                // Connection Test Row
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 10
+
+                    VirelaButton {
+                        primary: true
+                        compact: true
+                        iconName: "refresh"
+                        enabled: !root.onlineCtrl.testingConnection
+                        text: root.onlineCtrl.testingConnection ? qsTr("Testing...") : qsTr("Test Connection")
+                        onClicked: {
+                            root.settingsObj.onlineNeteaseApiUrl = neteaseUrlInput.text
+                            root.settingsObj.onlineMetingApiUrl = metingUrlInput.text
+                            root.settingsObj.onlineCookie = cookieInput.text
+                            root.onlineCtrl.testConnections()
+                        }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: qsTr("Leave URLs empty to disable online sources. Only connect to self-hosted or user-configured APIs.")
+                        color: DesignTokens.textTertiary
+                        font.family: DesignTokens.fontFamily
+                        font.pixelSize: 11
+                    }
+                }
+
+                // Auto-start Local Managed Backends with Virela
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 12
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text {
+                                text: qsTr("Auto-start Local Backends with Virela")
+                                color: DesignTokens.textPrimary
+                                font.family: DesignTokens.fontFamily
+                                font.pixelSize: 13
+                                font.weight: Font.Medium
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                                text: root.onlineCtrl.localServicesStatus
+                                color: (root.onlineCtrl.neteaseServiceRunning || root.onlineCtrl.metingServiceRunning)
+                                    ? DesignTokens.badgeTeal : DesignTokens.textTertiary
+                                font.family: DesignTokens.fontFamily
+                                font.pixelSize: 11
+                            }
+                        }
+                        VirelaButton {
+                            visible: root.settingsObj.onlineAutoStartLocalServices
+                            compact: true
+                            iconName: "refresh"
+                            text: qsTr("Restart")
+                            onClicked: root.onlineCtrl.restartLocalServices()
+                        }
+                        VirelaSwitch {
+                            checked: root.settingsObj.onlineAutoStartLocalServices
+                            onToggled: (state) => root.settingsObj.onlineAutoStartLocalServices = state
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        visible: root.settingsObj.onlineAutoStartLocalServices
+                        Text {
+                            Layout.preferredWidth: 118
+                            text: qsTr("Netease Service Dir")
+                            color: DesignTokens.textSecondary
+                            font.family: DesignTokens.fontFamily
+                            font.pixelSize: 12
+                        }
+                        Rectangle {
+                            Layout.fillWidth: true
+                            implicitHeight: 32
+                            radius: 8
+                            color: DesignTokens.surfaceInput
+                            border.width: 1
+                            border.color: DesignTokens.borderSubtle
+                            Text {
+                                anchors.fill: parent
+                                anchors.leftMargin: 10
+                                anchors.rightMargin: 10
+                                verticalAlignment: Text.AlignVCenter
+                                text: root.settingsObj.onlineNeteaseServiceDir.length > 0
+                                    ? root.settingsObj.onlineNeteaseServiceDir : qsTr("Not set")
+                                elide: Text.ElideMiddle
+                                color: root.settingsObj.onlineNeteaseServiceDir.length > 0
+                                    ? DesignTokens.textSecondary : DesignTokens.textTertiary
+                                font.family: DesignTokens.fontFamily
+                                font.pixelSize: 11
+                            }
+                        }
+                        VirelaButton {
+                            compact: true
+                            iconName: "folder"
+                            text: qsTr("Choose")
+                            onClicked: root.selectNeteaseServiceDirRequested()
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        visible: root.settingsObj.onlineAutoStartLocalServices
+                        Text {
+                            Layout.preferredWidth: 118
+                            text: qsTr("Meting Service Dir")
+                            color: DesignTokens.textSecondary
+                            font.family: DesignTokens.fontFamily
+                            font.pixelSize: 12
+                        }
+                        Rectangle {
+                            Layout.fillWidth: true
+                            implicitHeight: 32
+                            radius: 8
+                            color: DesignTokens.surfaceInput
+                            border.width: 1
+                            border.color: DesignTokens.borderSubtle
+                            Text {
+                                anchors.fill: parent
+                                anchors.leftMargin: 10
+                                anchors.rightMargin: 10
+                                verticalAlignment: Text.AlignVCenter
+                                text: root.settingsObj.onlineMetingServiceDir.length > 0
+                                    ? root.settingsObj.onlineMetingServiceDir : qsTr("Not set")
+                                elide: Text.ElideMiddle
+                                color: root.settingsObj.onlineMetingServiceDir.length > 0
+                                    ? DesignTokens.textSecondary : DesignTokens.textTertiary
+                                font.family: DesignTokens.fontFamily
+                                font.pixelSize: 11
+                            }
+                        }
+                        VirelaButton {
+                            compact: true
+                            iconName: "folder"
+                            text: qsTr("Choose")
+                            onClicked: root.selectMetingServiceDirRequested()
+                        }
+                    }
+                }
+
+                // Direct URL Priority
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("Direct Stream URL Priority")
+                        color: DesignTokens.textSecondary
+                        font.family: DesignTokens.fontFamily
+                        font.pixelSize: 13
+                    }
+                    VirelaComboBox {
+                        Layout.preferredWidth: 186
+                        model: [qsTr("Netease API First"), qsTr("Meting API First")]
+                        currentIndex: root.settingsObj.onlineDirectUrlPriority === "meting" ? 1 : 0
+                        onActivated: (idx) => {
+                            root.settingsObj.onlineDirectUrlPriority = idx === 1 ? "meting" : "netease"
+                        }
+                    }
+                }
+
+                // Auto Fallback
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 14
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        Text {
+                            text: qsTr("Automatic Backend & Quality Fallback")
+                            color: DesignTokens.textPrimary
+                            font.family: DesignTokens.fontFamily
+                            font.pixelSize: 13
+                            font.weight: Font.Medium
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            text: qsTr("Automatically fall back to the secondary backend or lower bitrate if a stream URL is unavailable or a VIP preview.")
+                            color: DesignTokens.textTertiary
+                            font.family: DesignTokens.fontFamily
+                            font.pixelSize: 11
+                        }
+                    }
+                    VirelaSwitch {
+                        checked: root.settingsObj.onlineAutoFallback
+                        onToggled: (state) => root.settingsObj.onlineAutoFallback = state
+                    }
+                }
+
+                // Trial / Copyright Unblock Fallback (/song/url/match)
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 14
+                    visible: root.settingsObj.onlineAutoFallback
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        Text {
+                            text: qsTr("Trial / Copyright Unblock Fallback (/song/url/match)")
+                            color: DesignTokens.textPrimary
+                            font.family: DesignTokens.fontFamily
+                            font.pixelSize: 13
+                            font.weight: Font.Medium
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            text: qsTr("When your Netease backend only returns a 30–45s VIP preview, automatically query its /song/url/match endpoint for a full stream.")
+                            color: DesignTokens.textTertiary
+                            font.family: DesignTokens.fontFamily
+                            font.pixelSize: 11
+                        }
+                    }
+                    VirelaSwitch {
+                        checked: root.settingsObj.onlineUnblockTrialFallback
+                        onToggled: (state) => root.settingsObj.onlineUnblockTrialFallback = state
+                    }
+                }
+
+                // Default Audio Quality
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("Default Streaming & Download Quality")
+                        color: DesignTokens.textSecondary
+                        font.family: DesignTokens.fontFamily
+                        font.pixelSize: 13
+                    }
+                    VirelaComboBox {
+                        Layout.preferredWidth: 186
+                        model: [qsTr("Standard (128k)"), qsTr("ExHigh (320k)"), qsTr("Lossless (FLAC)"), qsTr("Hi-Res")]
+                        currentIndex: {
+                            const q = root.settingsObj.onlineAudioQuality
+                            if (q === "standard") return 0
+                            if (q === "exhigh") return 1
+                            if (q === "hires") return 3
+                            return 2
+                        }
+                        onActivated: (idx) => {
+                            const quals = ["standard", "exhigh", "lossless", "hires"]
+                            root.settingsObj.onlineAudioQuality = quals[idx]
+                        }
+                    }
+                }
+
+                // Optional Local Cookie
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 5
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        Text {
+                            Layout.fillWidth: true
+                            text: qsTr("Optional Local Cookie (MUSIC_U=...)")
+                            color: DesignTokens.textSecondary
+                            font.family: DesignTokens.fontFamily
+                            font.pixelSize: 13
+                        }
+                        VirelaButton {
+                            compact: true
+                            flat: true
+                            iconName: root.showCookieText ? "eye_off" : "eye"
+                            text: root.showCookieText ? qsTr("Hide") : qsTr("Show")
+                            onClicked: root.showCookieText = !root.showCookieText
+                        }
+                        VirelaButton {
+                            visible: cookieInput.text.length > 0
+                            compact: true
+                            flat: true
+                            text: qsTr("Clear")
+                            onClicked: {
+                                cookieInput.text = ""
+                                root.settingsObj.onlineCookie = ""
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: 36
+                        radius: 10
+                        color: DesignTokens.surfaceInput
+                        border.width: 1
+                        border.color: cookieInput.activeFocus ? DesignTokens.accent : DesignTokens.borderOuter
+
+                        TextInput {
+                            id: cookieInput
+                            anchors.fill: parent
+                            anchors.leftMargin: 12
+                            anchors.rightMargin: 12
+                            verticalAlignment: TextInput.AlignVCenter
+                            text: root.settingsObj.onlineCookie
+                            echoMode: root.showCookieText ? TextInput.Normal : TextInput.Password
+                            color: DesignTokens.textPrimary
+                            selectionColor: DesignTokens.accent
+                            selectedTextColor: "#ffffff"
+                            selectByMouse: true
+                            font.family: DesignTokens.fontFamily
+                            font.pixelSize: 12
+                            clip: true
+                            onEditingFinished: root.settingsObj.onlineCookie = text
+
+                            Text {
+                                anchors.fill: parent
+                                verticalAlignment: Text.AlignVCenter
+                                text: qsTr("Stored locally in settings.json; never uploaded to third parties")
+                                color: DesignTokens.textTertiary
+                                font: cookieInput.font
+                                visible: cookieInput.text.length === 0 && !cookieInput.inputMethodComposing
+                            }
+                        }
+                    }
+                }
+
+                // Stream Cache LRU Cap & Clear
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 10
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("Stream Cache LRU Limit")
+                        color: DesignTokens.textSecondary
+                        font.family: DesignTokens.fontFamily
+                        font.pixelSize: 13
+                    }
+                    FormatBadge {
+                        compact: true
+                        text: root.onlineCtrl.cacheUsageText
+                    }
+                    VirelaComboBox {
+                        Layout.preferredWidth: 128
+                        model: ["256 MB", "512 MB", "1 GB", "2 GB", "4 GB", "8 GB"]
+                        currentIndex: {
+                            const mb = root.settingsObj.onlineCacheMaxMb
+                            if (mb <= 256) return 0
+                            if (mb <= 512) return 1
+                            if (mb <= 1024) return 2
+                            if (mb <= 2048) return 3
+                            if (mb <= 4096) return 4
+                            return 5
+                        }
+                        onActivated: (idx) => {
+                            const vals = [256, 512, 1024, 2048, 4096, 8192]
+                            root.settingsObj.onlineCacheMaxMb = vals[idx]
+                        }
+                    }
+                    VirelaButton {
+                        compact: true
+                        iconName: "trash"
+                        text: qsTr("Clear")
+                        onClicked: root.onlineCtrl.clearStreamCache()
+                    }
+                }
+
+                // Local Download Directory
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 5
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text {
+                                text: qsTr("Local Download Directory")
+                                color: DesignTokens.textPrimary
+                                font.family: DesignTokens.fontFamily
+                                font.pixelSize: 13
+                                font.weight: Font.Medium
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                                text: qsTr("Downloads embed cover art & metadata, save .yrc/.lrc lyrics sidecars, and auto-index into your local library.")
+                                color: DesignTokens.textTertiary
+                                font.family: DesignTokens.fontFamily
+                                font.pixelSize: 11
+                            }
+                        }
+                        VirelaButton {
+                            compact: true
+                            iconName: "folder"
+                            text: qsTr("Choose Folder")
+                            onClicked: root.selectDownloadDirRequested()
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: 34
+                        radius: 9
+                        color: DesignTokens.surfaceInput
+                        border.width: 1
+                        border.color: DesignTokens.borderSubtle
+
+                        Text {
+                            anchors.fill: parent
+                            anchors.leftMargin: 12
+                            anchors.rightMargin: 12
+                            verticalAlignment: Text.AlignVCenter
+                            text: root.settingsObj.onlineDownloadDir
+                            elide: Text.ElideMiddle
+                            color: DesignTokens.textSecondary
+                            font.family: DesignTokens.fontFamily
+                            font.pixelSize: 12
+                        }
+                    }
+                }
+            }
+
+            // 4. Music Library Folders
+            SectionCard {
+                visible: root.activeSettingsTab === "local"
                 iconName: "folder"
                 title: qsTr("Watched Music Folders")
 
@@ -416,8 +1076,9 @@ Item {
                 }
             }
 
-            // 4. Desktop Integration
+            // 5. Desktop Integration
             SectionCard {
+                visible: root.activeSettingsTab === "appearance"
                 iconName: "mini"
                 title: qsTr("Desktop Integration (Windows)")
 
@@ -466,5 +1127,6 @@ Item {
                 }
             }
         }
+    }
     }
 }

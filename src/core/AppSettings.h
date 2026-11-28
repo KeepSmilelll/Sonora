@@ -39,6 +39,19 @@ class AppSettings : public QObject {
     Q_PROPERTY(bool visualizerEnabled READ visualizerEnabled WRITE setVisualizerEnabled NOTIFY visualizerEnabledChanged)
     Q_PROPERTY(QStringList libraryFolders READ libraryFolders WRITE setLibraryFolders NOTIFY libraryFoldersChanged)
 
+    Q_PROPERTY(QString onlineNeteaseApiUrl READ onlineNeteaseApiUrl WRITE setOnlineNeteaseApiUrl NOTIFY onlineSettingsChanged)
+    Q_PROPERTY(QString onlineMetingApiUrl READ onlineMetingApiUrl WRITE setOnlineMetingApiUrl NOTIFY onlineSettingsChanged)
+    Q_PROPERTY(QString onlineDirectUrlPriority READ onlineDirectUrlPriority WRITE setOnlineDirectUrlPriority NOTIFY onlineSettingsChanged)
+    Q_PROPERTY(bool onlineAutoFallback READ onlineAutoFallback WRITE setOnlineAutoFallback NOTIFY onlineSettingsChanged)
+    Q_PROPERTY(bool onlineUnblockTrialFallback READ onlineUnblockTrialFallback WRITE setOnlineUnblockTrialFallback NOTIFY onlineSettingsChanged)
+    Q_PROPERTY(QString onlineAudioQuality READ onlineAudioQuality WRITE setOnlineAudioQuality NOTIFY onlineSettingsChanged)
+    Q_PROPERTY(QString onlineCookie READ onlineCookie WRITE setOnlineCookie NOTIFY onlineSettingsChanged)
+    Q_PROPERTY(int onlineCacheMaxMb READ onlineCacheMaxMb WRITE setOnlineCacheMaxMb NOTIFY onlineSettingsChanged)
+    Q_PROPERTY(QString onlineDownloadDir READ onlineDownloadDir WRITE setOnlineDownloadDir NOTIFY onlineSettingsChanged)
+    Q_PROPERTY(bool onlineAutoStartLocalServices READ onlineAutoStartLocalServices WRITE setOnlineAutoStartLocalServices NOTIFY onlineLocalServicesChanged)
+    Q_PROPERTY(QString onlineNeteaseServiceDir READ onlineNeteaseServiceDir WRITE setOnlineNeteaseServiceDir NOTIFY onlineLocalServicesChanged)
+    Q_PROPERTY(QString onlineMetingServiceDir READ onlineMetingServiceDir WRITE setOnlineMetingServiceDir NOTIFY onlineLocalServicesChanged)
+
 public:
     explicit AppSettings(const QString& overrideConfigPath = {}, QObject* parent = nullptr);
 
@@ -46,6 +59,8 @@ public:
     void save() const;
 
     static QString defaultDataDir();
+    static QString defaultDownloadDir();
+    static QString defaultStreamCacheDir();
     QString configPath() const { return configPath_; }
 
     QString themeMode() const { return themeMode_; }
@@ -117,6 +132,42 @@ public:
     Q_INVOKABLE void addLibraryFolder(const QString& folder);
     Q_INVOKABLE void removeLibraryFolder(const QString& folder);
 
+    QString onlineNeteaseApiUrl() const { return onlineNeteaseApiUrl_; }
+    void setOnlineNeteaseApiUrl(const QString& url);
+
+    QString onlineMetingApiUrl() const { return onlineMetingApiUrl_; }
+    void setOnlineMetingApiUrl(const QString& url);
+
+    QString onlineDirectUrlPriority() const { return onlineDirectUrlPriority_; }
+    void setOnlineDirectUrlPriority(const QString& priority);
+
+    bool onlineAutoFallback() const { return onlineAutoFallback_; }
+    void setOnlineAutoFallback(bool enabled);
+
+    bool onlineUnblockTrialFallback() const { return onlineUnblockTrialFallback_; }
+    void setOnlineUnblockTrialFallback(bool enabled);
+
+    QString onlineAudioQuality() const { return onlineAudioQuality_; }
+    void setOnlineAudioQuality(const QString& quality);
+
+    QString onlineCookie() const { return onlineCookie_; }
+    void setOnlineCookie(const QString& cookie);
+
+    int onlineCacheMaxMb() const { return onlineCacheMaxMb_; }
+    void setOnlineCacheMaxMb(int maxMb);
+
+    QString onlineDownloadDir() const { return onlineDownloadDir_; }
+    void setOnlineDownloadDir(const QString& dir);
+
+    bool onlineAutoStartLocalServices() const { return onlineAutoStartLocalServices_; }
+    void setOnlineAutoStartLocalServices(bool enabled);
+
+    QString onlineNeteaseServiceDir() const { return onlineNeteaseServiceDir_; }
+    void setOnlineNeteaseServiceDir(const QString& dir);
+
+    QString onlineMetingServiceDir() const { return onlineMetingServiceDir_; }
+    void setOnlineMetingServiceDir(const QString& dir);
+
 signals:
     void themeModeChanged();
     void backdropModeChanged();
@@ -130,6 +181,8 @@ signals:
     void desktopSettingsChanged();
     void visualizerEnabledChanged();
     void libraryFoldersChanged();
+    void onlineSettingsChanged();
+    void onlineLocalServicesChanged();
 
 private:
     QString configPath_;
@@ -158,6 +211,19 @@ private:
     bool globalHotkeysEnabled_ = true;
     bool visualizerEnabled_ = true;
     QStringList libraryFolders_;
+
+    QString onlineNeteaseApiUrl_;
+    QString onlineMetingApiUrl_;
+    QString onlineDirectUrlPriority_ = QStringLiteral("netease");
+    bool onlineAutoFallback_ = true;
+    bool onlineUnblockTrialFallback_ = true;
+    QString onlineAudioQuality_ = QStringLiteral("lossless");
+    QString onlineCookie_;
+    int onlineCacheMaxMb_ = 1024;
+    QString onlineDownloadDir_;
+    bool onlineAutoStartLocalServices_ = false;
+    QString onlineNeteaseServiceDir_;
+    QString onlineMetingServiceDir_;
 };
 
 } // namespace virela

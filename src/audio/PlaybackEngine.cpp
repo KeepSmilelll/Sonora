@@ -1,6 +1,7 @@
 #include "audio/PlaybackEngine.h"
 #include "audio/MiniAudioOutput.h"
 #include "audio/dsp/ReplayGainProcessor.h"
+#include "online/StreamCacheManager.h"
 
 #include <QMetaObject>
 #include <algorithm>
@@ -249,6 +250,15 @@ void PlaybackEngine::stop() {
     abortDecode_.store(true, std::memory_order_release);
     rtPaused_.store(true, std::memory_order_release);
     uiTickTimer_.stop();
+    {
+        std::lock_guard<std::mutex> lock(streamSessionMutex_);
+        activeStreamSession_.reset();
+    }
+    bufferedRatio_.store(0.0, std::memory_order_release);
+    if (lastEmittedBufferedRatio_ != 0.0) {
+        lastEmittedBufferedRatio_ = 0.0;
+        emit bufferedRatioChanged(0.0);
+    }
     {
         std::lock_guard<std::mutex> lock(cmdMutex_);
         pendingCmd_.type = DecodeCommandType::Stop;
@@ -507,6 +517,11 @@ void PlaybackEngine::renderFramesForTest(float* interleavedOut, uint32_t frameCo
     renderAudioCallback(interleavedOut, frameCount, channels);
 }
 
+void PlaybackEngine::setOnlineStreamResolver(OnlineStreamResolverFn fn) {
+    std::lock_guard<std::mutex> lock(resolverMutex_);
+    onlineStreamResolver_ = std::move(fn);
+}
+
 void PlaybackEngine::renderAudioCallback(float* interleavedOut, uint32_t frameCount, uint32_t channels) noexcept {
     if (frameCount == 0 || channels == 0) return;
 
@@ -621,6 +636,21 @@ void PlaybackEngine::decodeLoop() {
 
     std::vector<float> decodeChunk(4096 * 8, 0.0f);
 
+    auto setStreamSessionAndRatio = [&](std::shared_ptr<StreamCacheSession> sess, double initialRatio) {
+        {
+            std::lock_guard<std::mutex> lock(streamSessionMutex_);
+            activeStreamSession_ = std::move(sess);
+        }
+        const double clamped = std::clamp(initialRatio, 0.0, 1.0);
+        bufferedRatio_.store(clamped, std::memory_order_release);
+        QMetaObject::invokeMethod(this, [this, clamped]() {
+            if (std::abs(clamped - lastEmittedBufferedRatio_) >= 0.001 || (clamped == 0.0 && lastEmittedBufferedRatio_ != 0.0)) {
+                lastEmittedBufferedRatio_ = clamped;
+                emit bufferedRatioChanged(clamped);
+            }
+        }, Qt::QueuedConnection);
+    };
+
     auto openAndStartTrack = [&](const TrackInfo& requestedTrack, int qIdx, int64_t initialSeekMs) {
         activeDecoder->close();
         nextDecoder->close();
@@ -629,6 +659,7 @@ void PlaybackEngine::decodeLoop() {
         eosPushed = false;
         waitingReconfigure = false;
         abortDecode_.store(false, std::memory_order_release);
+        setStreamSessionAndRatio(nullptr, 0.0);
 
         OutputConfig cfg;
         {
@@ -636,91 +667,203 @@ void PlaybackEngine::decodeLoop() {
             cfg = outputConfig_;
         }
 
-        // Probe first if sampleRate unknown
+        // Probe first if sampleRate unknown (local tracks) or resolve stream first (online tracks)
         TrackInfo track = requestedTrack;
-        if (track.sampleRate <= 0) {
-            TrackInfo probed;
-            if (FFmpegDecoder::probeFile(track.filePath, probed)) {
-                if (!track.isCue) {
-                    probed.id = track.id;
-                    probed.isFavorite = track.isFavorite;
-                    probed.coverHash = track.coverHash;
-                    track = probed;
-                } else {
-                    track.sampleRate = probed.sampleRate;
-                    track.channels = probed.channels;
-                    track.bitDepth = probed.bitDepth;
-                    track.codec = probed.codec;
-                    track.formatBadge = probed.formatBadge;
-                    track.isDsd = probed.isDsd;
-                    if (track.durationMs <= 0 && track.endMs > track.startMs) {
-                        track.durationMs = track.endMs - track.startMs;
-                    }
-                }
+        activeDecoder->setExternalAbortFlag(&abortDecode_);
+
+        if (track.isOnline()) {
+            OnlineStreamResolverFn resolver;
+            {
+                std::lock_guard<std::mutex> lock(resolverMutex_);
+                resolver = onlineStreamResolver_;
             }
-        }
-
-        const int desiredRate = desiredSampleRateForTrack(track, cfg);
-        const int desiredCh = std::clamp(track.channels > 0 ? track.channels : 2, 1, 2);
-
-        const bool needOpenOutput = !output_->isOpen()
-            || activeSampleRate_.load(std::memory_order_acquire) != desiredRate
-            || activeChannels_.load(std::memory_order_acquire) != desiredCh
-            || (output_->activeStatus().exclusiveActive != (cfg.mode == OutputMode::WasapiExclusive));
-
-        if (needOpenOutput) {
-            output_->stop();
-            if (!openOutputForFormat(desiredRate, desiredCh)) {
+            if (!resolver) {
                 QMetaObject::invokeMethod(this, [this]() {
-                    emit errorOccurred(QStringLiteral("Failed to initialize audio output device."));
+                    emit errorOccurred(QStringLiteral("Online stream resolver is not configured."));
                 }, Qt::QueuedConnection);
+                state_.store(PlaybackState::Stopped, std::memory_order_release);
+                return;
+            }
+
+            ResolvedOnlinePlayback resolved = resolver(track, &abortDecode_);
+            if (abortDecode_.load(std::memory_order_acquire)) {
+                return;
+            }
+            if (!resolved.error.isEmpty()
+                || (resolved.localCachePath.isEmpty() && !resolved.session && resolved.directUrl.isEmpty())) {
+                const QString msg = resolved.error.isEmpty()
+                    ? QStringLiteral("Failed to resolve online stream URL.")
+                    : resolved.error;
+                QMetaObject::invokeMethod(this, [this, msg]() {
+                    emit errorOccurred(msg);
+                }, Qt::QueuedConnection);
+                state_.store(PlaybackState::Stopped, std::memory_order_release);
+                return;
+            }
+
+            QString openErr;
+            bool opened = false;
+            if (!resolved.localCachePath.isEmpty()) {
+                setStreamSessionAndRatio(nullptr, 1.0);
+                opened = activeDecoder->open(resolved.localCachePath, 0, 2, cfg.dsdTargetSampleRate, 0, 0, &openErr);
+            } else if (resolved.session) {
+                const double initR = resolved.session->isComplete() ? 1.0 : resolved.session->progressRatio();
+                setStreamSessionAndRatio(resolved.session, initR);
+                opened = activeDecoder->openStream(resolved.session, 0, 2, cfg.dsdTargetSampleRate, &openErr);
+            } else {
+                setStreamSessionAndRatio(nullptr, 0.0);
+                opened = activeDecoder->open(resolved.directUrl, 0, 2, cfg.dsdTargetSampleRate, 0, 0, &openErr);
+            }
+
+            if (!opened) {
+                setStreamSessionAndRatio(nullptr, 0.0);
+                if (abortDecode_.load(std::memory_order_acquire) || activeDecoder->wasAborted()) {
+                    return;
+                }
+                QMetaObject::invokeMethod(this, [this, openErr]() {
+                    emit errorOccurred(openErr);
+                }, Qt::QueuedConnection);
+                state_.store(PlaybackState::Stopped, std::memory_order_release);
+                return;
+            }
+
+            // Merge probed audio specifications while keeping queue entry free of transient URLs/paths
+            const TrackInfo& probed = activeDecoder->trackInfo();
+            if (track.title.isEmpty() && !probed.title.isEmpty()) track.title = probed.title;
+            if (track.artist.isEmpty() && !probed.artist.isEmpty()) track.artist = probed.artist;
+            if (track.album.isEmpty() && !probed.album.isEmpty()) track.album = probed.album;
+            if (track.durationMs <= 0 && probed.durationMs > 0) track.durationMs = probed.durationMs;
+            track.sampleRate = probed.sampleRate;
+            track.bitDepth = probed.bitDepth;
+            track.channels = probed.channels > 0 ? probed.channels : 2;
+            track.codec = !probed.codec.isEmpty() ? probed.codec : resolved.codec;
+            track.bitrateKbps = probed.bitrateKbps > 0 ? probed.bitrateKbps : resolved.bitrateKbps;
+            track.formatBadge = !probed.formatBadge.isEmpty() ? probed.formatBadge : resolved.formatBadge;
+            track.isDsd = probed.isDsd;
+            track.filePath.clear();
+
+            const int desiredRate = desiredSampleRateForTrack(track, cfg);
+            const int desiredCh = std::clamp(track.channels > 0 ? track.channels : 2, 1, 2);
+            const bool needOpenOutput = !output_->isOpen()
+                || activeSampleRate_.load(std::memory_order_acquire) != desiredRate
+                || activeChannels_.load(std::memory_order_acquire) != desiredCh
+                || (output_->activeStatus().exclusiveActive != (cfg.mode == OutputMode::WasapiExclusive));
+
+            if (needOpenOutput) {
+                output_->stop();
+                if (!openOutputForFormat(desiredRate, desiredCh)) {
+                    activeDecoder->close();
+                    QMetaObject::invokeMethod(this, [this]() {
+                        emit errorOccurred(QStringLiteral("Failed to initialize audio output device."));
+                    }, Qt::QueuedConnection);
+                    state_.store(PlaybackState::Stopped, std::memory_order_release);
+                    return;
+                }
+            } else {
+                output_->stop();
+                ringBuffer_.reset();
+                boundaryQueue_.reset();
+                eq_.resetState();
+            }
+
+            const int outSr = activeSampleRate_.load(std::memory_order_acquire);
+            const int outCh = activeChannels_.load(std::memory_order_acquire);
+            QString reconfErr;
+            if (!activeDecoder->reconfigureOutput(outSr, outCh, &reconfErr)) {
+                activeDecoder->close();
+                QMetaObject::invokeMethod(this, [this, reconfErr]() {
+                    emit errorOccurred(reconfErr);
+                }, Qt::QueuedConnection);
+                state_.store(PlaybackState::Stopped, std::memory_order_release);
                 return;
             }
         } else {
-            output_->stop();
-            ringBuffer_.reset();
-            boundaryQueue_.reset();
-            eq_.resetState();
+            if (track.sampleRate <= 0) {
+                TrackInfo probed;
+                if (FFmpegDecoder::probeFile(track.filePath, probed)) {
+                    if (!track.isCue) {
+                        probed.id = track.id;
+                        probed.isFavorite = track.isFavorite;
+                        probed.coverHash = track.coverHash;
+                        track = probed;
+                    } else {
+                        track.sampleRate = probed.sampleRate;
+                        track.channels = probed.channels;
+                        track.bitDepth = probed.bitDepth;
+                        track.codec = probed.codec;
+                        track.formatBadge = probed.formatBadge;
+                        track.isDsd = probed.isDsd;
+                        if (track.durationMs <= 0 && track.endMs > track.startMs) {
+                            track.durationMs = track.endMs - track.startMs;
+                        }
+                    }
+                }
+            }
+
+            const int desiredRate = desiredSampleRateForTrack(track, cfg);
+            const int desiredCh = std::clamp(track.channels > 0 ? track.channels : 2, 1, 2);
+
+            const bool needOpenOutput = !output_->isOpen()
+                || activeSampleRate_.load(std::memory_order_acquire) != desiredRate
+                || activeChannels_.load(std::memory_order_acquire) != desiredCh
+                || (output_->activeStatus().exclusiveActive != (cfg.mode == OutputMode::WasapiExclusive));
+
+            if (needOpenOutput) {
+                output_->stop();
+                if (!openOutputForFormat(desiredRate, desiredCh)) {
+                    QMetaObject::invokeMethod(this, [this]() {
+                        emit errorOccurred(QStringLiteral("Failed to initialize audio output device."));
+                    }, Qt::QueuedConnection);
+                    return;
+                }
+            } else {
+                output_->stop();
+                ringBuffer_.reset();
+                boundaryQueue_.reset();
+                eq_.resetState();
+            }
+
+            const int outSr = activeSampleRate_.load(std::memory_order_acquire);
+            const int outCh = activeChannels_.load(std::memory_order_acquire);
+
+            QString err;
+            if (!activeDecoder->open(track.filePath, outSr, outCh, cfg.dsdTargetSampleRate,
+                                     track.startMs, track.endMs, &err)) {
+                QMetaObject::invokeMethod(this, [this, err]() {
+                    emit errorOccurred(err);
+                }, Qt::QueuedConnection);
+                state_.store(PlaybackState::Stopped, std::memory_order_release);
+                return;
+            }
+
+            // Merge probed technical details back if queue had minimal TrackInfo
+            if (track.durationMs <= 0) {
+                track.durationMs = activeDecoder->trackInfo().durationMs;
+            }
+            if (track.codec.isEmpty()) {
+                track.codec = activeDecoder->trackInfo().codec;
+                track.formatBadge = activeDecoder->trackInfo().formatBadge;
+                track.sampleRate = activeDecoder->trackInfo().sampleRate;
+                track.bitDepth = activeDecoder->trackInfo().bitDepth;
+                track.bitrateKbps = activeDecoder->trackInfo().bitrateKbps;
+                track.isDsd = activeDecoder->trackInfo().isDsd;
+            }
+            if (!track.hasRgTrack && activeDecoder->trackInfo().hasRgTrack) {
+                track.rgTrackGainDb = activeDecoder->trackInfo().rgTrackGainDb;
+                track.rgTrackPeak = activeDecoder->trackInfo().rgTrackPeak;
+                track.hasRgTrack = true;
+            }
+            if (!track.hasRgAlbum && activeDecoder->trackInfo().hasRgAlbum) {
+                track.rgAlbumGainDb = activeDecoder->trackInfo().rgAlbumGainDb;
+                track.rgAlbumPeak = activeDecoder->trackInfo().rgAlbumPeak;
+                track.hasRgAlbum = true;
+            }
+            if (track.embeddedLyrics.isEmpty()) {
+                track.embeddedLyrics = activeDecoder->trackInfo().embeddedLyrics;
+            }
         }
 
         const int outSr = activeSampleRate_.load(std::memory_order_acquire);
-        const int outCh = activeChannels_.load(std::memory_order_acquire);
-
-        QString err;
-        if (!activeDecoder->open(track.filePath, outSr, outCh, cfg.dsdTargetSampleRate,
-                                 track.startMs, track.endMs, &err)) {
-            QMetaObject::invokeMethod(this, [this, err]() {
-                emit errorOccurred(err);
-            }, Qt::QueuedConnection);
-            state_.store(PlaybackState::Stopped, std::memory_order_release);
-            return;
-        }
-
-        // Merge probed technical details back if queue had minimal TrackInfo
-        if (track.durationMs <= 0) {
-            track.durationMs = activeDecoder->trackInfo().durationMs;
-        }
-        if (track.codec.isEmpty()) {
-            track.codec = activeDecoder->trackInfo().codec;
-            track.formatBadge = activeDecoder->trackInfo().formatBadge;
-            track.sampleRate = activeDecoder->trackInfo().sampleRate;
-            track.bitDepth = activeDecoder->trackInfo().bitDepth;
-            track.bitrateKbps = activeDecoder->trackInfo().bitrateKbps;
-            track.isDsd = activeDecoder->trackInfo().isDsd;
-        }
-        if (!track.hasRgTrack && activeDecoder->trackInfo().hasRgTrack) {
-            track.rgTrackGainDb = activeDecoder->trackInfo().rgTrackGainDb;
-            track.rgTrackPeak = activeDecoder->trackInfo().rgTrackPeak;
-            track.hasRgTrack = true;
-        }
-        if (!track.hasRgAlbum && activeDecoder->trackInfo().hasRgAlbum) {
-            track.rgAlbumGainDb = activeDecoder->trackInfo().rgAlbumGainDb;
-            track.rgAlbumPeak = activeDecoder->trackInfo().rgAlbumPeak;
-            track.hasRgAlbum = true;
-        }
-        if (track.embeddedLyrics.isEmpty()) {
-            track.embeddedLyrics = activeDecoder->trackInfo().embeddedLyrics;
-        }
 
         if (initialSeekMs > 0) {
             activeDecoder->seekRelativeMs(initialSeekMs);
@@ -766,6 +909,7 @@ void PlaybackEngine::decodeLoop() {
             emit durationChanged(track.durationMs);
             emit stateChanged(PlaybackState::Playing);
             emit positionChanged(trackBaseMs_.load(std::memory_order_acquire));
+            emit trackStartedPlayback(track);
             if (track.id >= 0) {
                 emit trackPlaybackStarted(track.id);
             }
@@ -797,6 +941,7 @@ void PlaybackEngine::decodeLoop() {
             nextDecoder->close();
             ringBuffer_.reset();
             boundaryQueue_.reset();
+            setStreamSessionAndRatio(nullptr, 0.0);
             activeEof = false;
             eosPushed = false;
             waitingReconfigure = false;
@@ -876,7 +1021,7 @@ void PlaybackEngine::decodeLoop() {
                     }
                     cfg = outputConfig_;
                 }
-                if (candidateIdx >= 0 && !isContiguousCuePair(activeTrack, candidate)) {
+                if (candidateIdx >= 0 && !candidate.isOnline() && !isContiguousCuePair(activeTrack, candidate)) {
                     const int curSr = activeSampleRate_.load(std::memory_order_acquire);
                     const int candDesiredSr = desiredSampleRateForTrack(candidate, cfg);
                     const bool rateMatch = (cfg.mode != OutputMode::WasapiExclusive || !cfg.autoNativeSampleRate || candDesiredSr == curSr);
@@ -937,9 +1082,10 @@ void PlaybackEngine::decodeLoop() {
             continue;
         }
 
-        // Case B: WASAPI Exclusive with automatic sample rate switching to a different native rate
+        // Case B: Online track (resolve fresh direct URL at transition) or WASAPI Exclusive native rate switch
         const int nextDesiredSr = desiredSampleRateForTrack(nextTrack, cfg);
-        if (cfg.mode == OutputMode::WasapiExclusive && cfg.autoNativeSampleRate && nextDesiredSr != curSr) {
+        if (nextTrack.isOnline()
+            || (cfg.mode == OutputMode::WasapiExclusive && cfg.autoNativeSampleRate && nextDesiredSr != curSr)) {
             StreamBoundaryMarker m{};
             m.absoluteFrame = ringBuffer_.totalWrittenFrames();
             m.queueIndex = nextIdx;
@@ -1031,6 +1177,23 @@ void PlaybackEngine::onUiTick() {
     if (pos != lastEmittedPosMs_) {
         lastEmittedPosMs_ = pos;
         emit positionChanged(pos);
+    }
+
+    std::shared_ptr<StreamCacheSession> sess;
+    {
+        std::lock_guard<std::mutex> lock(streamSessionMutex_);
+        sess = activeStreamSession_;
+    }
+    if (sess) {
+        const double r = sess->isComplete() ? 1.0 : std::clamp(sess->progressRatio(), 0.0, 1.0);
+        bufferedRatio_.store(r, std::memory_order_release);
+    }
+    const double curBuf = bufferedRatio_.load(std::memory_order_acquire);
+    if (std::abs(curBuf - lastEmittedBufferedRatio_) >= 0.005
+        || (curBuf == 0.0 && lastEmittedBufferedRatio_ != 0.0)
+        || (curBuf >= 1.0 && lastEmittedBufferedRatio_ < 1.0)) {
+        lastEmittedBufferedRatio_ = curBuf;
+        emit bufferedRatioChanged(curBuf);
     }
 }
 

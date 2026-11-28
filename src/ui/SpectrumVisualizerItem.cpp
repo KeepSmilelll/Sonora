@@ -19,7 +19,7 @@ void SpectrumVisualizerItem::setSharedEngine(PlaybackEngine* engine) {
 SpectrumVisualizerItem::SpectrumVisualizerItem(QQuickItem* parent)
     : QQuickItem(parent) {
     setFlag(ItemHasContents, true);
-    frameTimer_.setInterval(16); // ~60 fps only while actively visible & playing
+    frameTimer_.setInterval(33); // ~30 fps aligned with PlaybackEngine UI tick when visible & playing
     connect(&frameTimer_, &QTimer::timeout, this, &SpectrumVisualizerItem::onFrameTick);
 }
 
@@ -41,7 +41,7 @@ void SpectrumVisualizerItem::setPlaying(bool p) {
     if (playing_ == p) return;
     playing_ = p;
     if (!playing_) {
-        idleDecayFrames_ = 28; // Smooth fade-out to flat baseline then stop timer
+        idleDecayFrames_ = 16; // Smooth fade-out to flat baseline then stop timer
     }
     emit activeChanged();
     updateTimerState();
@@ -71,13 +71,25 @@ void SpectrumVisualizerItem::setStyleMode(const QString& mode) {
 
 void SpectrumVisualizerItem::itemChange(ItemChange change, const ItemChangeData& value) {
     QQuickItem::itemChange(change, value);
-    if (change == ItemVisibleHasChanged || change == ItemSceneChange) {
+    if (change == ItemSceneChange) {
+        if (observedWindow_) {
+            disconnect(observedWindow_, nullptr, this, nullptr);
+        }
+        observedWindow_ = window();
+        if (observedWindow_) {
+            connect(observedWindow_, &QQuickWindow::visibleChanged, this, &SpectrumVisualizerItem::updateTimerState);
+            connect(observedWindow_, &QQuickWindow::visibilityChanged, this, &SpectrumVisualizerItem::updateTimerState);
+        }
+        updateTimerState();
+    } else if (change == ItemVisibleHasChanged) {
         updateTimerState();
     }
 }
 
 void SpectrumVisualizerItem::updateTimerState() {
-    const bool visibleNow = isVisible() && visualizerEnabled_ && window() != nullptr;
+    QQuickWindow* win = window();
+    const bool windowShown = win != nullptr && win->isVisible() && win->visibility() != QWindow::Minimized;
+    const bool visibleNow = isVisible() && visualizerEnabled_ && windowShown;
     const bool shouldTick = visibleNow && (playing_ || idleDecayFrames_ > 0);
 
     if (sharedEngine_) {

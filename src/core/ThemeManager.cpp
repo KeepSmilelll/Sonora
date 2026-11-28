@@ -148,6 +148,13 @@ void ThemeManager::toggleDarkLight() {
     setThemeMode(isDark_ ? QStringLiteral("light") : QStringLiteral("dark"));
 }
 
+void ThemeManager::trimTransientMemory() {
+    if (qmlEngine_) {
+        qmlEngine_->trimComponentCache();
+        qmlEngine_->collectGarbage();
+    }
+}
+
 void ThemeManager::resolveTheme() {
     const QString mode = themeMode();
     if (mode == QStringLiteral("dark")) {

@@ -1,3 +1,7 @@
+#include "audio/PlaybackEngine.h"
+#include "core/AppSettings.h"
+#include "core/PlaybackController.h"
+#include "core/ThemeManager.h"
 #include "library/CoverArtProvider.h"
 #include "library/CueParser.h"
 #include "library/LibraryDatabase.h"
@@ -5,6 +9,9 @@
 #include "library/M3uPlaylistIO.h"
 #include "lyrics/LyricsController.h"
 #include "lyrics/LyricsParser.h"
+#include "models/LibraryModels.h"
+#include "sqlite3.h"
+#include "ui/IconImageProvider.h"
 
 #include <QBuffer>
 #include <QFile>
@@ -493,6 +500,297 @@ private slots:
         QCOMPARE(loaded.sourceLabel, QStringLiteral("YRC"));
         QCOMPARE(loaded.lines.size(), 1);
         QCOMPARE(loaded.lines[0].words.size(), 2);
+    }
+
+    void testIconImageProvider() {
+        const QStringList names = IconImageProvider::allIconNames();
+        QCOMPARE(names.size(), 52);
+
+        auto hasOpaquePixels = [](const QImage& img) {
+            int maxAlpha = 0;
+            int nonZeroCount = 0;
+            for (int y = 0; y < img.height(); ++y) {
+                for (int x = 0; x < img.width(); ++x) {
+                    const int a = qAlpha(img.pixel(x, y));
+                    if (a > 0) {
+                        ++nonZeroCount;
+                        maxAlpha = std::max(maxAlpha, a);
+                    }
+                }
+            }
+            return std::pair<int, int>{nonZeroCount, maxAlpha};
+        };
+
+        IconImageProvider provider;
+
+        // Every registered icon renders valid non-empty pixels in stroked mode
+        for (const QString& name : names) {
+            for (int px : {32, 48}) {
+                const QImage stroked = IconImageProvider::renderIcon(name, px, QColor(240, 240, 250), 1.8, false);
+                QCOMPARE(stroked.size(), QSize(px, px));
+                QCOMPARE(stroked.format(), QImage::Format_ARGB32_Premultiplied);
+                QVERIFY2(hasOpaquePixels(stroked).first > 8,
+                         qPrintable(QStringLiteral("Stroked icon empty: %1").arg(name)));
+            }
+        }
+
+        // Closed-contour icons render non-empty pixels in filled mode
+        const QStringList filledIcons = {
+            QStringLiteral("play"), QStringLiteral("pause"), QStringLiteral("heart_filled"),
+            QStringLiteral("heart"), QStringLiteral("folder"), QStringLiteral("cloud"),
+            QStringLiteral("album"), QStringLiteral("maximize")
+        };
+        for (const QString& name : filledIcons) {
+            for (int px : {32, 48}) {
+                const QImage filled = IconImageProvider::renderIcon(name, px, QColor(255, 80, 110), 1.8, true);
+                QCOMPARE(filled.size(), QSize(px, px));
+                QCOMPARE(filled.format(), QImage::Format_ARGB32_Premultiplied);
+                QVERIFY2(hasOpaquePixels(filled).first > 8,
+                         qPrintable(QStringLiteral("Filled icon empty: %1").arg(name)));
+            }
+        }
+
+        // Alpha hex color parsing & cache hit behavior via requestImage()
+        QSize sz1;
+        const QImage semi = provider.requestImage(
+            QStringLiteral("settings?s=36&c=a8141a29&sw=18&f=0"), &sz1, {});
+        QCOMPARE(sz1, QSize(36, 36));
+        QCOMPARE(semi.size(), QSize(36, 36));
+        const auto semiStats = hasOpaquePixels(semi);
+        QVERIFY(semiStats.first > 12);
+        QVERIFY(semiStats.second <= 170); // ~0xA8 = 168
+
+        // Cache hit returns identical size and pixels
+        QSize sz2;
+        const QImage cached = provider.requestImage(
+            QStringLiteral("settings?s=36&c=a8141a29&sw=18&f=0"), &sz2, {});
+        QCOMPARE(sz2, QSize(36, 36));
+        QCOMPARE(cached, semi);
+
+        // Unknown icon name falls back gracefully without crashing
+        QSize sz3;
+        const QImage fallback = provider.requestImage(
+            QStringLiteral("nonexistent_icon_xyz?s=28&c=ffffffff&sw=18&f=0"), &sz3, {});
+        QCOMPARE(sz3, QSize(28, 28));
+        QVERIFY(hasOpaquePixels(fallback).first > 8);
+    }
+
+    void quickSearchAndDownloadedTracksModel() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+
+        const QString dlDir = dir.filePath(QStringLiteral("downloads"));
+        const QString otherDir = dir.filePath(QStringLiteral("local_music"));
+        QVERIFY(QDir().mkpath(dlDir));
+        QVERIFY(QDir().mkpath(otherDir));
+
+        const QString wavOther = QDir(otherDir).filePath(QStringLiteral("Nocturne_Op9.wav"));
+        const QString wavDl = QDir(dlDir).filePath(QStringLiteral("Cloud_Downloaded.wav"));
+        QVERIFY(writeTinyWav(wavOther, 44100, 0.1));
+        QVERIFY(writeTinyWav(wavDl, 44100, 0.1));
+
+        AppSettings settings(dir.filePath(QStringLiteral("settings.json")));
+        settings.setOnlineDownloadDir(dlDir);
+
+        LibraryDatabase db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        CoverArtProvider covers(dir.filePath(QStringLiteral("covers")));
+        LibraryScanner scanner(&db, &covers);
+
+        TrackInfo t1;
+        t1.filePath = wavOther;
+        t1.title = QStringLiteral("Nocturne Op.9");
+        t1.artist = QStringLiteral("Chopin");
+        t1.album = QStringLiteral("Complete Nocturnes");
+        t1.albumArtist = QStringLiteral("Chopin");
+        t1.durationMs = 100;
+        t1.formatBadge = QStringLiteral("WAV");
+        QVERIFY(db.upsertTrack(t1));
+        QVERIFY(t1.id >= 0);
+
+        TrackInfo foundById;
+        QVERIFY(db.findTrackById(t1.id, foundById));
+        QCOMPARE(foundById.title, QStringLiteral("Nocturne Op.9"));
+        QVERIFY(!db.findTrackById(999999, foundById));
+
+        LibraryController libCtrl(&db, &scanner, &covers, &settings, nullptr);
+        auto* tracksMdl = qobject_cast<TrackListModel*>(libCtrl.tracksModel());
+        auto* dlMdl = qobject_cast<TrackListModel*>(libCtrl.downloadedTracksModel());
+        QVERIFY(tracksMdl != nullptr);
+        QVERIFY(dlMdl != nullptr);
+        QCOMPARE(tracksMdl->count(), 1);
+        QCOMPARE(dlMdl->count(), 0);
+
+        // quickSearchLocal MUST return matching items without mutating searchQuery or tracksModel
+        const QVariantMap res = libCtrl.quickSearchLocal(QStringLiteral("Nocturne"), 5, 3, 2);
+        QCOMPARE(res.value(QStringLiteral("totalTracks")).toInt(), 1);
+        QCOMPARE(res.value(QStringLiteral("tracks")).toList().size(), 1);
+        QCOMPARE(res.value(QStringLiteral("albums")).toList().size(), 1);
+        QVERIFY(libCtrl.searchQuery().isEmpty());
+        QCOMPARE(tracksMdl->count(), 1);
+
+        // Empty query returns empty results
+        const QVariantMap emptyRes = libCtrl.quickSearchLocal(QStringLiteral("   "));
+        QCOMPARE(emptyRes.value(QStringLiteral("totalTracks")).toInt(), 0);
+        QVERIFY(emptyRes.value(QStringLiteral("tracks")).toList().isEmpty());
+
+        // Ingesting a file into onlineDownloadDir populates downloadedTracksModel
+        QVERIFY(libCtrl.ingestLocalFile(wavDl));
+        QCOMPARE(tracksMdl->count(), 2);
+        QCOMPARE(dlMdl->count(), 1);
+        QCOMPARE(dlMdl->tracks().first().filePath, QFileInfo(wavDl).absoluteFilePath());
+
+        // Home summaries fall back to Recently Added before any plays, and expose album summaries
+        QVERIFY(!libCtrl.hasRecentPlays());
+        QCOMPARE(libCtrl.recentTracksSummary().size(), 2);
+        QVERIFY(libCtrl.recentAlbumsSummary().size() >= 1);
+
+        // Recording a playback switches Continue Listening to Recently Played
+        QVERIFY(db.recordPlayback(t1.id));
+        libCtrl.refreshAll();
+        QVERIFY(libCtrl.hasRecentPlays());
+        QCOMPARE(libCtrl.recentTracksSummary().size(), 1);
+        QCOMPARE(libCtrl.recentTracksSummary().first().toMap().value(QStringLiteral("title")).toString(),
+                 QStringLiteral("Nocturne Op.9"));
+    }
+
+    void crossSourceUnificationAndLocalUpgrade() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString dbPath = dir.filePath(QStringLiteral("legacy.db"));
+
+        // 1. Seed a legacy Phase 1/2 SQLite database WITHOUT source/remote_id/cover_url columns
+        {
+            sqlite3* rawDb = nullptr;
+            QCOMPARE(sqlite3_open(dbPath.toUtf8().constData(), &rawDb), SQLITE_OK);
+            static constexpr const char* kLegacySql =
+                "CREATE TABLE tracks ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, file_path TEXT NOT NULL, is_cue INTEGER NOT NULL DEFAULT 0,"
+                "cue_path TEXT NOT NULL DEFAULT '', start_ms INTEGER NOT NULL DEFAULT 0, end_ms INTEGER NOT NULL DEFAULT 0,"
+                "title TEXT NOT NULL DEFAULT '', artist TEXT NOT NULL DEFAULT '', album TEXT NOT NULL DEFAULT '',"
+                "album_artist TEXT NOT NULL DEFAULT '', track_number INTEGER NOT NULL DEFAULT 0,"
+                "disc_number INTEGER NOT NULL DEFAULT 0, year INTEGER NOT NULL DEFAULT 0, genre TEXT NOT NULL DEFAULT '',"
+                "duration_ms INTEGER NOT NULL DEFAULT 0, sample_rate INTEGER NOT NULL DEFAULT 0,"
+                "bit_depth INTEGER NOT NULL DEFAULT 0, bitrate_kbps INTEGER NOT NULL DEFAULT 0,"
+                "channels INTEGER NOT NULL DEFAULT 2, codec TEXT NOT NULL DEFAULT '', format_badge TEXT NOT NULL DEFAULT '',"
+                "is_dsd INTEGER NOT NULL DEFAULT 0, rg_track_gain REAL NOT NULL DEFAULT 0.0, rg_track_peak REAL NOT NULL DEFAULT 1.0,"
+                "rg_album_gain REAL NOT NULL DEFAULT 0.0, rg_album_peak REAL NOT NULL DEFAULT 1.0,"
+                "has_rg_track INTEGER NOT NULL DEFAULT 0, has_rg_album INTEGER NOT NULL DEFAULT 0,"
+                "cover_hash TEXT NOT NULL DEFAULT '', file_size INTEGER NOT NULL DEFAULT 0,"
+                "file_mtime INTEGER NOT NULL DEFAULT 0, is_favorite INTEGER NOT NULL DEFAULT 0,"
+                "play_count INTEGER NOT NULL DEFAULT 0, last_played_at INTEGER NOT NULL DEFAULT 0,"
+                "added_at INTEGER NOT NULL DEFAULT 0, UNIQUE(file_path, start_ms));";
+            QCOMPARE(sqlite3_exec(rawDb, kLegacySql, nullptr, nullptr, nullptr), SQLITE_OK);
+            sqlite3_close(rawDb);
+        }
+
+        LibraryDatabase db;
+        QVERIFY(db.open(dbPath));
+
+        const QString dlDir = dir.filePath(QStringLiteral("downloads"));
+        const QString locDir = dir.filePath(QStringLiteral("local"));
+        QVERIFY(QDir().mkpath(dlDir));
+        QVERIFY(QDir().mkpath(locDir));
+        const QString localWav = QDir(locDir).filePath(QStringLiteral("local_piece.wav"));
+        const QString downloadedWav = QDir(dlDir).filePath(QStringLiteral("online_2025.wav"));
+        QVERIFY(writeTinyWav(localWav, 44100, 0.1));
+        QVERIFY(writeTinyWav(downloadedWav, 48000, 0.1));
+
+        TrackInfo loc;
+        loc.filePath = localWav;
+        loc.title = QStringLiteral("Local Sonata");
+        loc.artist = QStringLiteral("Beethoven");
+        loc.album = QStringLiteral("Sonatas");
+        loc.albumArtist = QStringLiteral("Beethoven");
+        loc.durationMs = 100;
+        loc.formatBadge = QStringLiteral("WAV");
+        QVERIFY(db.upsertTrack(loc));
+
+        AppSettings settings(dir.filePath(QStringLiteral("settings.json")));
+        settings.setOnlineDownloadDir(dlDir);
+        CoverArtProvider covers(dir.filePath(QStringLiteral("covers")));
+        LibraryScanner scanner(&db, &covers);
+        LibraryController libCtrl(&db, &scanner, &covers, &settings, nullptr);
+
+        // 2. Favorite & play an online track; verify isolation from local library counts
+        QVariantMap onlineMap;
+        onlineMap.insert(QStringLiteral("source"), QStringLiteral("netease"));
+        onlineMap.insert(QStringLiteral("remoteId"), QStringLiteral("888001"));
+        onlineMap.insert(QStringLiteral("title"), QStringLiteral("Clair de Lune"));
+        onlineMap.insert(QStringLiteral("artist"), QStringLiteral("Debussy"));
+        onlineMap.insert(QStringLiteral("album"), QStringLiteral("Suite bergamasque"));
+        onlineMap.insert(QStringLiteral("durationMs"), 240000);
+        onlineMap.insert(QStringLiteral("formatBadge"), QStringLiteral("Hi-Res"));
+        onlineMap.insert(QStringLiteral("coverUrl"), QStringLiteral("https://example.com/clair.jpg"));
+
+        QVERIFY(libCtrl.toggleTrackFavorite(onlineMap));
+        QVERIFY(libCtrl.isTrackFavorite(QStringLiteral("netease"), QStringLiteral("888001")));
+
+        TrackInfo persistedOnline;
+        QVERIFY(db.findOnlineTrack(QStringLiteral("netease"), QStringLiteral("888001"), persistedOnline));
+        const int64_t onlineRowId = persistedOnline.id;
+        QVERIFY(onlineRowId >= 0);
+        QVERIFY(persistedOnline.isOnline());
+        QVERIFY(db.recordOnlinePlayback(persistedOnline));
+
+        // Online shadow track must NOT pollute local totalTrackCount, queryTracks, or queryAlbums
+        QCOMPARE(db.totalTrackCount(), 1);
+        QCOMPARE(db.queryTracks().size(), 1);
+        QCOMPARE(db.queryAlbums().size(), 1);
+
+        // Removing all local watched folders must NOT wipe online favorites/playlists
+        QVERIFY(db.removeTracksOutsideFolders({}));
+        QCOMPARE(db.totalTrackCount(), 0);
+        QVERIFY(db.isOnlineTrackFavorite(QStringLiteral("netease"), QStringLiteral("888001")));
+
+        // Restore local track and create mixed local + online playlist
+        QVERIFY(db.upsertTrack(loc));
+        const int64_t plId = libCtrl.createPlaylist(QStringLiteral("Mixed Mix"));
+        QVERIFY(plId >= 0);
+        libCtrl.addTrackToPlaylist(plId, loc.id);
+        libCtrl.addTrackMapToPlaylist(plId, onlineMap);
+        const QVector<TrackInfo> mixedTracks = db.queryPlaylistTracks(plId);
+        QCOMPARE(mixedTracks.size(), 2);
+        QCOMPARE(mixedTracks[1].isOnline(), true);
+
+        // 3. Pin & unpin online playlists
+        QVERIFY(libCtrl.pinOnlinePlaylist(
+            QStringLiteral("netease"), QStringLiteral("24381616"),
+            QStringLiteral("Midnight Piano"), QStringLiteral("Virela"), QStringLiteral("https://example.com/pl.jpg"), 20));
+        QVERIFY(libCtrl.isOnlinePlaylistPinned(QStringLiteral("netease"), QStringLiteral("24381616")));
+        QCOMPARE(libCtrl.pinnedPlaylists().size(), 1);
+
+        // 4. Seamless download upgrade: online row upgrades in-place preserving id, favorite, play_count, and playlist items
+        QVERIFY(libCtrl.ingestDownloadedTrack(downloadedWav, QStringLiteral("netease"), QStringLiteral("888001")));
+        TrackInfo upgraded;
+        QVERIFY(db.findTrackById(onlineRowId, upgraded));
+        QCOMPARE(upgraded.source, QStringLiteral("local"));
+        QCOMPARE(upgraded.remoteId, QStringLiteral("888001"));
+        QCOMPARE(upgraded.filePath, QFileInfo(downloadedWav).absoluteFilePath());
+        QVERIFY(upgraded.isFavorite);
+        QCOMPARE(upgraded.playCount, 1);
+
+        const QVector<TrackInfo> plAfterUpgrade = db.queryPlaylistTracks(plId);
+        QCOMPARE(plAfterUpgrade.size(), 2);
+        QCOMPARE(plAfterUpgrade[1].id, onlineRowId);
+        QCOMPARE(plAfterUpgrade[1].source, QStringLiteral("local"));
+        QVERIFY(libCtrl.unpinOnlinePlaylist(QStringLiteral("netease"), QStringLiteral("24381616")));
+        QVERIFY(!libCtrl.isOnlinePlaylistPinned(QStringLiteral("netease"), QStringLiteral("24381616")));
+
+        // 5. Lazy model loading & memory reclamation
+        auto* tracksMdl = qobject_cast<TrackListModel*>(libCtrl.tracksModel());
+        auto* albumsMdl = qobject_cast<AlbumListModel*>(libCtrl.albumsModel());
+        QVERIFY(tracksMdl && albumsMdl);
+        QVERIFY(tracksMdl->count() >= 1);
+        QVERIFY(albumsMdl->count() >= 1);
+
+        libCtrl.releaseInactiveModels(QStringLiteral("online"));
+        QCOMPARE(tracksMdl->count(), 0);
+        QCOMPARE(albumsMdl->count(), 0);
+
+        // Accessing model re-hydrates automatically on demand
+        QCOMPARE(libCtrl.tracksModel(), tracksMdl);
+        QVERIFY(tracksMdl->count() >= 1);
     }
 };
 

@@ -8,14 +8,22 @@ Item {
 
     required property var controller
     required property var lib
+    property bool embedded: false
 
     property string selectedArtist: ""
+
+    function selectArtist(name) {
+        if (!name || name.length === 0) return
+        root.selectedArtist = name
+        root.lib.openArtist(name)
+    }
 
     onSelectedArtistChanged: artistDetailAnim.restart()
 
     RowLayout {
         anchors.fill: parent
-        anchors.margins: 22
+        anchors.margins: root.embedded ? 0 : 22
+        anchors.topMargin: root.embedded ? 4 : 22
         spacing: 16
 
         // Left Spatial Glass Artist Rail
@@ -320,7 +328,7 @@ Item {
                             NowPlayingBars {
                                 anchors.centerIn: parent
                                 visible: atRow.isCurrent
-                                playing: root.controller.isPlaying
+                                controller: root.controller
                                 size: 13
                             }
 

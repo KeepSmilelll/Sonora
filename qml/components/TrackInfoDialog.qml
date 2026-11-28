@@ -153,7 +153,9 @@ Item {
                         id: infoCoverImg
                         anchors.fill: parent
                         source: (root.trackMap.coverHash && root.trackMap.coverHash.length > 0)
-                            ? ("image://cover/" + root.trackMap.coverHash + "?size=160") : ""
+                            ? ("image://cover/" + root.trackMap.coverHash + "?size=160")
+                            : (root.trackMap.coverUrl || "")
+                        sourceSize: Qt.size(160, 160)
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: false
@@ -270,6 +272,15 @@ Item {
                         value: root.trackMap.cuePath || ""
                     }
                     SpecRow {
+                        visible: Boolean(root.trackMap.isOnline)
+                        label: qsTr("Online Source")
+                        value: root.trackMap.isOnline
+                            ? ((root.trackMap.source || "") + " · ID " + (root.trackMap.remoteId || ""))
+                            : ""
+                        showDivider: Boolean(root.trackMap.filePath)
+                    }
+                    SpecRow {
+                        visible: Boolean(root.trackMap.filePath) || !Boolean(root.trackMap.isOnline)
                         label: qsTr("File Path")
                         value: root.trackMap.filePath || ""
                         showDivider: false

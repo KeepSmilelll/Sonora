@@ -9,6 +9,7 @@ Item {
     property var model: []
     property string textRole: ""
     property int currentIndex: 0
+    property bool autoSelect: true
     signal activated(int index)
 
     implicitWidth: 168
@@ -168,7 +169,7 @@ Item {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
-                                root.currentIndex = optRow.index
+                                if (root.autoSelect) root.currentIndex = optRow.index
                                 root.activated(optRow.index)
                                 popup.close()
                             }

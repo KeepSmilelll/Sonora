@@ -8,6 +8,7 @@ Item {
 
     required property var controller
     required property var lib
+    property bool embedded: false
     property string sectionTitle: qsTr("All Tracks")
     property string sectionKey: "tracks"
     property int activePlaylistId: -1
@@ -101,7 +102,7 @@ Item {
         y: libraryLayout.y + sortHeader.y
         width: sortHeader.width
         height: libraryLayout.height - sortHeader.y
-        visible: sortHeader.visible
+        visible: !root.embedded && sortHeader.visible
         radius: DesignTokens.radiusLg
         color: DesignTokens.contentStageBg
         border.width: 1
@@ -111,11 +112,12 @@ Item {
     ColumnLayout {
         id: libraryLayout
         anchors.fill: parent
-        anchors.leftMargin: root.compact ? 6 : 0
-        anchors.rightMargin: root.compact ? 6 : 0
+        anchors.leftMargin: root.embedded ? 0 : (root.compact ? 6 : 0)
+        anchors.rightMargin: root.embedded ? 0 : (root.compact ? 6 : 0)
         spacing: root.shortWindow ? 8 : 12
 
         RowLayout {
+            visible: !root.embedded
             Layout.fillWidth: true
             spacing: 12
 
@@ -306,8 +308,13 @@ Item {
                 required property string coverHash
                 required property bool isFavorite
                 required property bool isCue
+                required property bool isOnline
+                required property string coverUrl
+                required property string trackKey
 
-                readonly property bool isCurrent: root.controller.trackId >= 0 && root.controller.trackId === trackId
+                readonly property bool isCurrent: row.isOnline
+                    ? (root.controller.trackIsOnline && root.controller.trackKey === row.trackKey)
+                    : (root.controller.trackId >= 0 && root.controller.trackId === row.trackId)
                 readonly property bool rowHovered: rowMa.containsMouse || thumbMa.containsMouse || favMa.containsMouse || infoMa.containsMouse
                 width: trackList.width
                 height: root.shortWindow ? 38 : 44
@@ -343,7 +350,7 @@ Item {
                         NowPlayingBars {
                             anchors.verticalCenter: parent.verticalCenter
                             visible: row.isCurrent
-                            playing: root.controller.isPlaying
+                            controller: root.controller
                             size: 14
                         }
 
@@ -372,7 +379,10 @@ Item {
                             id: thumbImg
                             anchors.fill: parent
                             source: row.isCurrent ? root.controller.trackCoverUrl
-                                : (row.coverHash.length > 0 ? "image://cover/" + row.coverHash + "?size=96" : "")
+                                : (row.coverHash.length > 0
+                                    ? ("image://cover/" + row.coverHash + "?size=96")
+                                    : row.coverUrl)
+                            sourceSize: Qt.size(80, 80)
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
                             cache: false
@@ -437,6 +447,13 @@ Item {
                                 compact: true
                                 visible: row.isCue
                                 text: "CUE"
+                            }
+
+                            IconGlyph {
+                                visible: row.isOnline
+                                name: "cloud"
+                                size: 11
+                                color: DesignTokens.accentLight
                             }
                         }
 
@@ -519,7 +536,7 @@ Item {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: root.lib.toggleFavorite(row.trackId, row.isFavorite)
+                                onClicked: root.lib.toggleTrackFavorite(root.lib.tracksModel.trackMapAt(row.index))
                             }
                         }
 
@@ -570,6 +587,9 @@ Item {
 
             // Spatial Glass Empty Library Onboarding Card
             GlassPanel {
+                id: emptyLibraryCard
+                readonly property bool noSearchMatches: root.sectionKey === "tracks"
+                    && root.lib.totalTrackCount > 0 && root.lib.searchQuery.length > 0
                 anchors.centerIn: parent
                 visible: root.lib.tracksModel.count === 0
                 width: Math.min(parent.width - 64, 460)
@@ -593,13 +613,19 @@ Item {
                         color: DesignTokens.accentSoft
                         border.width: 1
                         border.color: Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, 0.28)
-                        IconGlyph { anchors.centerIn: parent; name: root.sectionIcon; size: 28; color: DesignTokens.accent }
+                        IconGlyph {
+                            anchors.centerIn: parent
+                            name: emptyLibraryCard.noSearchMatches ? "search" : root.sectionIcon
+                            size: 28
+                            color: DesignTokens.accent
+                        }
                     }
 
                     Text {
                         Layout.fillWidth: true
                         horizontalAlignment: Text.AlignHCenter
-                        text: root.sectionKey === "tracks" ? qsTr("Your Library is Empty") : qsTr("No Tracks Here Yet")
+                        text: emptyLibraryCard.noSearchMatches ? qsTr("No matching tracks")
+                            : (root.sectionKey === "tracks" ? qsTr("Your Library is Empty") : qsTr("No Tracks Here Yet"))
                         color: DesignTokens.textPrimary
                         font.family: DesignTokens.fontFamily
                         font.pixelSize: 19
@@ -610,7 +636,8 @@ Item {
                         Layout.fillWidth: true
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.WordWrap
-                        text: qsTr("Add your local music folders to index FLAC, ALAC, WAV, APE, CUE, DSD, and MP3 files, or drag files straight onto this window.")
+                        text: emptyLibraryCard.noSearchMatches ? qsTr("Try another keyword in the search bar.")
+                            : qsTr("Add your local music folders to index FLAC, ALAC, WAV, APE, CUE, DSD, and MP3 files, or drag files straight onto this window.")
                         color: DesignTokens.textSecondary
                         font.family: DesignTokens.fontFamily
                         font.pixelSize: 13
@@ -618,6 +645,7 @@ Item {
                     }
 
                     RowLayout {
+                        visible: !emptyLibraryCard.noSearchMatches
                         Layout.alignment: Qt.AlignHCenter
                         Layout.topMargin: 8
                         spacing: 10
@@ -698,7 +726,7 @@ Item {
         }
         StyledMenuItem {
             text: trackMenu.targetIsFavorite ? qsTr("Remove from Favorites") : qsTr("Add to Favorites")
-            onTriggered: root.lib.toggleFavorite(trackMenu.targetTrackId, trackMenu.targetIsFavorite)
+            onTriggered: root.lib.toggleTrackFavorite(root.lib.tracksModel.trackMapAt(trackMenu.targetIndex))
         }
         StyledMenuItem {
             text: qsTr("Track Technical Info")

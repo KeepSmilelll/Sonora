@@ -2,20 +2,34 @@ import QtQuick
 import QtQuick.Layouts
 import Virela.UI
 
-// Floating collapsible spatial navigation rail (60px icon rail <-> 212px expanded playlist view)
+// Floating collapsible spatial navigation rail (60px icon rail <-> 212px expanded unified navigation)
 Item {
     id: root
 
     property bool expanded: false
-    property string activeSection: "tracks"
+    property string activeSection: "online"
     property var customPlaylists: []
+    property var pinnedPlaylists: []
     property int activePlaylistId: -1
+    property string activePinnedRemoteId: ""
+    property int activeDownloadCount: 0
 
     property Item hoveredNavItem: null
     property string hoveredTooltip: ""
+    property real hoveredTooltipY: 0
+
+    onHoveredNavItemChanged: {
+        if (hoveredNavItem) {
+            hoveredTooltipY = Math.round(
+                hoveredNavItem.mapToItem(root, 0, 0).y
+                + (hoveredNavItem.height - hoverTooltipPill.height) * 0.5)
+        }
+    }
 
     signal sectionSelected(string section)
     signal playlistSelected(int playlistId, string playlistName)
+    signal pinnedPlaylistSelected(string source, string remoteId, string name, string creator, string coverUrl)
+    signal unpinOnlinePlaylistRequested(string source, string remoteId)
     signal createPlaylistRequested()
     signal importM3uRequested()
     signal toggleExpandedRequested()
@@ -29,11 +43,12 @@ Item {
 
     readonly property Item activeNavItem: {
         switch (root.activeSection) {
-        case "tracks":    return navTracks
-        case "artists":   return navArtists
-        case "folders":   return navFolders
+        case "online":    return navOnline
         case "favorites": return navFavorites
         case "recent":    return navRecent
+        case "local":     return navLocal
+        case "downloads": return navDownloads
+        case "playlist":  return root.expanded ? null : navPlaylists
         case "settings":  return navSettings
         default:          return null
         }
@@ -44,7 +59,7 @@ Item {
         property string iconName: "music"
         property string label: ""
         property bool selected: false
-        property bool actionOnly: false
+        property int badgeCount: 0
         signal activated()
 
         Layout.fillWidth: true
@@ -68,11 +83,22 @@ Item {
             }
         }
 
+        // Compact dot when rail is collapsed and item has active badgeCount
+        Rectangle {
+            visible: !root.expanded && itemRoot.badgeCount > 0
+            width: 6
+            height: 6
+            radius: 3
+            x: glyph.x + glyph.width - 2
+            y: glyph.y - 2
+            color: DesignTokens.accent
+        }
+
         Text {
             anchors.left: glyph.right
             anchors.leftMargin: 12
-            anchors.right: parent.right
-            anchors.rightMargin: 10
+            anchors.right: itemBadge.visible ? itemBadge.left : parent.right
+            anchors.rightMargin: itemBadge.visible ? 6 : 10
             anchors.verticalCenter: parent.verticalCenter
             text: itemRoot.label
             elide: Text.ElideRight
@@ -86,6 +112,31 @@ Item {
             font.weight: itemRoot.selected ? Font.DemiBold : Font.Medium
             Behavior on opacity { NumberAnimation { duration: 150 } }
             Behavior on color { ColorAnimation { duration: 140 } }
+        }
+
+        Rectangle {
+            id: itemBadge
+            visible: root.expanded && itemRoot.badgeCount > 0
+            anchors.right: parent.right
+            anchors.rightMargin: 8
+            anchors.verticalCenter: parent.verticalCenter
+            implicitWidth: Math.max(18, badgeLbl.implicitWidth + 10)
+            implicitHeight: 18
+            radius: 9
+            color: DesignTokens.accentSoft
+            border.width: 1
+            border.color: Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, 0.35)
+
+            Text {
+                id: badgeLbl
+                anchors.centerIn: parent
+                text: String(itemRoot.badgeCount)
+                color: DesignTokens.accentLight
+                font.family: DesignTokens.fontFamily
+                font.pixelSize: 10
+                font.weight: Font.Bold
+                font.features: ({ "tnum": 1 })
+            }
         }
 
         MouseArea {
@@ -161,8 +212,8 @@ Item {
 
             Rectangle {
                 id: selectionPill
-                x: 0
-                width: indicatorLayer.width
+                x: root.activeNavItem ? root.activeNavItem.x : 0
+                width: root.activeNavItem ? root.activeNavItem.width : indicatorLayer.width
                 y: root.activeNavItem ? root.activeNavItem.y : 0
                 height: root.activeNavItem ? root.activeNavItem.height : 36
                 opacity: root.activeNavItem !== null ? 1.0 : 0.0
@@ -194,67 +245,53 @@ Item {
             spacing: 3
             z: 2
 
+            // Group 1: DISCOVER
             Text {
+                visible: root.expanded
+                Layout.leftMargin: 11
+                Layout.topMargin: 1
+                Layout.bottomMargin: 2
+                text: qsTr("DISCOVER")
+                color: DesignTokens.textTertiary
+                font.family: DesignTokens.fontFamily
+                font.pixelSize: 10
+                font.weight: Font.Bold
+                font.letterSpacing: 0.6
+            }
+
+            NavItem {
+                id: navOnline
+                iconName: "cloud"
+                label: qsTr("Discover")
+                selected: root.activeSection === "online"
+                onActivated: root.sectionSelected("online")
+            }
+
+            // Group divider (collapsed hairline or expanded LIBRARY label)
+            Rectangle {
+                visible: !root.expanded
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: 4
+                Layout.bottomMargin: 4
+                implicitWidth: 24
+                implicitHeight: 1
+                color: DesignTokens.hairlineBorder
+            }
+
+            Text {
+                visible: root.expanded
+                Layout.leftMargin: 11
+                Layout.topMargin: 8
+                Layout.bottomMargin: 2
                 text: qsTr("LIBRARY")
                 color: DesignTokens.textTertiary
                 font.family: DesignTokens.fontFamily
                 font.pixelSize: 10
                 font.weight: Font.Bold
-                font.letterSpacing: 1.1
-                Layout.leftMargin: 11
-                Layout.topMargin: 2
-                Layout.bottomMargin: 3
-                visible: root.expanded
-                opacity: root.expanded ? 1.0 : 0.0
-                Behavior on opacity { NumberAnimation { duration: 150 } }
+                font.letterSpacing: 0.6
             }
 
-            NavItem {
-                id: navTracks
-                iconName: "music"
-                label: qsTr("All Tracks")
-                selected: root.activeSection === "tracks"
-                onActivated: root.sectionSelected("tracks")
-            }
-            NavItem {
-                id: navArtists
-                iconName: "artist"
-                label: qsTr("Artists")
-                selected: root.activeSection === "artists"
-                onActivated: root.sectionSelected("artists")
-            }
-            NavItem {
-                id: navFolders
-                iconName: "folder"
-                label: qsTr("Folders")
-                selected: root.activeSection === "folders"
-                onActivated: root.sectionSelected("folders")
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.leftMargin: 8
-                Layout.rightMargin: 8
-                Layout.topMargin: 5
-                Layout.bottomMargin: 5
-                implicitHeight: 1
-                color: DesignTokens.hairlineBorder
-                visible: !root.expanded
-            }
-
-            Text {
-                text: qsTr("COLLECTIONS")
-                color: DesignTokens.textTertiary
-                font.family: DesignTokens.fontFamily
-                font.pixelSize: 10
-                font.weight: Font.Bold
-                font.letterSpacing: 1.1
-                Layout.leftMargin: 11
-                Layout.topMargin: 10
-                Layout.bottomMargin: 3
-                visible: root.expanded
-            }
-
+            // Group 2: LIBRARY (unified across online & local)
             NavItem {
                 id: navFavorites
                 iconName: root.activeSection === "favorites" ? "heart_filled" : "heart"
@@ -269,17 +306,33 @@ Item {
                 selected: root.activeSection === "recent"
                 onActivated: root.sectionSelected("recent")
             }
+            NavItem {
+                id: navLocal
+                iconName: "music"
+                label: qsTr("Local Music")
+                selected: root.activeSection === "local"
+                onActivated: root.sectionSelected("local")
+            }
+            NavItem {
+                id: navDownloads
+                iconName: "download"
+                label: qsTr("Downloads")
+                selected: root.activeSection === "downloads"
+                badgeCount: root.activeDownloadCount
+                onActivated: root.sectionSelected("downloads")
+            }
 
             // Collapsed playlist shortcut (expands rail to access custom playlists)
             NavItem {
+                id: navPlaylists
                 visible: !root.expanded
                 iconName: "playlist"
                 label: qsTr("Playlists")
                 selected: root.activeSection === "playlist"
-                actionOnly: true
                 onActivated: root.toggleExpandedRequested()
             }
 
+            // Group 3: PLAYLISTS (expanded)
             RowLayout {
                 visible: root.expanded
                 Layout.fillWidth: true
@@ -296,7 +349,7 @@ Item {
                     font.family: DesignTokens.fontFamily
                     font.pixelSize: 10
                     font.weight: Font.Bold
-                    font.letterSpacing: 1.1
+                    font.letterSpacing: 0.6
                 }
 
                 SmallToolBtn {
@@ -319,7 +372,7 @@ Item {
                 clip: true
                 spacing: 3
                 boundsBehavior: Flickable.StopAtBounds
-                model: root.customPlaylists
+                model: visible ? root.customPlaylists : null
 
                 delegate: Rectangle {
                     id: plDel
@@ -379,6 +432,113 @@ Item {
                         onClicked: root.playlistSelected(plDel.modelData.id, plDel.modelData.name)
                     }
                 }
+
+                footer: Column {
+                    width: parent ? parent.width : 190
+                    spacing: 3
+                    visible: root.pinnedPlaylists && root.pinnedPlaylists.length > 0
+
+                    Rectangle {
+                        width: parent.width - 16
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        height: 1
+                        color: DesignTokens.hairlineBorder
+                    }
+
+                    Text {
+                        leftPadding: 11
+                        topPadding: 6
+                        bottomPadding: 2
+                        text: qsTr("PINNED ONLINE")
+                        color: DesignTokens.textTertiary
+                        font.family: DesignTokens.fontFamily
+                        font.pixelSize: 10
+                        font.weight: Font.Bold
+                        font.letterSpacing: 0.6
+                    }
+
+                    Repeater {
+                        model: root.pinnedPlaylists
+                        delegate: Rectangle {
+                            id: pinDel
+                            required property var modelData
+                            readonly property bool isSel: root.activeSection === "online"
+                                && root.activePinnedRemoteId === (modelData.remoteId || "")
+                            width: ListView.view ? ListView.view.width : 190
+                            height: 34
+                            radius: DesignTokens.radiusMd
+                            color: isSel
+                                ? DesignTokens.surfaceSelected
+                                : ((pinMa.containsMouse || unpinMa.containsMouse) ? DesignTokens.surfaceHover : "transparent")
+                            border.width: isSel ? 1 : 0
+                            border.color: Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, DesignTokens.isDark ? 0.30 : 0.20)
+                            Behavior on color { ColorAnimation { duration: 130 } }
+
+                            MouseArea {
+                                id: pinMa
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.pinnedPlaylistSelected(
+                                    pinDel.modelData.source || "netease",
+                                    pinDel.modelData.remoteId || "",
+                                    pinDel.modelData.name || "",
+                                    pinDel.modelData.creator || "",
+                                    pinDel.modelData.coverUrl || "")
+                            }
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 6
+                                spacing: 8
+
+                                IconGlyph {
+                                    name: "cloud"
+                                    size: 13
+                                    color: pinDel.isSel ? DesignTokens.accent : DesignTokens.accentLight
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: pinDel.modelData.name || ""
+                                    elide: Text.ElideRight
+                                    color: pinDel.isSel
+                                        ? DesignTokens.textPrimary
+                                        : (pinMa.containsMouse ? DesignTokens.textPrimary : DesignTokens.textSecondary)
+                                    font.family: DesignTokens.fontFamily
+                                    font.pixelSize: 13
+                                    font.weight: pinDel.isSel ? Font.DemiBold : Font.Normal
+                                }
+
+                                Rectangle {
+                                    visible: pinMa.containsMouse || unpinMa.containsMouse
+                                    implicitWidth: 22
+                                    implicitHeight: 22
+                                    radius: 6
+                                    color: unpinMa.containsMouse ? DesignTokens.surfacePressed : "transparent"
+
+                                    IconGlyph {
+                                        anchors.centerIn: parent
+                                        name: "close"
+                                        size: 11
+                                        color: DesignTokens.textTertiary
+                                    }
+
+                                    MouseArea {
+                                        id: unpinMa
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.unpinOnlinePlaylistRequested(
+                                            pinDel.modelData.source || "netease",
+                                            pinDel.modelData.remoteId || "")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             Item {
@@ -416,9 +576,7 @@ Item {
         shadowEnabled: true
         radius: DesignTokens.radiusSm
         x: root.width + 10
-        y: root.hoveredNavItem
-            ? Math.round(root.hoveredNavItem.mapToItem(root, 0, 0).y + (root.hoveredNavItem.height - height) * 0.5)
-            : 0
+        y: root.hoveredTooltipY
         width: tooltipLabel.implicitWidth + 20
         height: 28
 

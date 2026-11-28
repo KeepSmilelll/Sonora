@@ -3,9 +3,12 @@
 #include "audio/dsp/FftAnalyzer.h"
 
 #include <QColor>
+#include <QPointer>
 #include <QQuickItem>
 #include <QTimer>
 #include <array>
+
+class QQuickWindow;
 
 namespace virela {
 
@@ -74,6 +77,7 @@ private:
     float lastEmittedBass_ = 0.0f;
     int idleDecayFrames_ = 0;
 
+    QPointer<QQuickWindow> observedWindow_;
     QTimer frameTimer_;
     std::array<float, FftAnalyzer::kBandCount> bars_{};
     std::array<float, FftAnalyzer::kBandCount> peaks_{};

@@ -94,8 +94,10 @@ GlassPanel {
                 required property string title
                 required property string artist
                 required property string coverHash
+                required property string coverUrl
                 required property int durationMs
                 required property bool isCurrent
+                required property bool isOnline
 
                 readonly property bool hovered: rowMa.containsMouse || rmMa.containsMouse
                 readonly property bool nextStartsHere: root.controller.currentIndex >= 0
@@ -151,7 +153,8 @@ GlassPanel {
                             id: queueCover
                             anchors.fill: parent
                             source: qRow.isCurrent ? root.controller.trackCoverUrl
-                                : (qRow.coverHash.length > 0 ? "image://cover/" + qRow.coverHash + "?size=96" : "")
+                                : (qRow.coverHash.length > 0 ? "image://cover/" + qRow.coverHash + "?size=96" : qRow.coverUrl)
+                            sourceSize: Qt.size(96, 96)
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
                             cache: false
@@ -170,19 +173,29 @@ GlassPanel {
                             font.pixelSize: 13
                             font.weight: qRow.isCurrent ? Font.DemiBold : Font.Medium
                         }
-                        Text {
+                        RowLayout {
                             Layout.fillWidth: true
-                            text: qRow.artist.length > 0 ? qRow.artist : qsTr("Unknown Artist")
-                            elide: Text.ElideRight
-                            color: DesignTokens.textTertiary
-                            font.family: DesignTokens.fontFamily
-                            font.pixelSize: 11
+                            spacing: 4
+                            IconGlyph {
+                                visible: qRow.isOnline
+                                name: "cloud"
+                                size: 10
+                                color: DesignTokens.textTertiary
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: qRow.artist.length > 0 ? qRow.artist : qsTr("Unknown Artist")
+                                elide: Text.ElideRight
+                                color: DesignTokens.textTertiary
+                                font.family: DesignTokens.fontFamily
+                                font.pixelSize: 11
+                            }
                         }
                     }
 
                     NowPlayingBars {
                         visible: qRow.isCurrent && !qRow.hovered
-                        playing: root.controller.isPlaying
+                        controller: root.controller
                         size: 15
                     }
 
@@ -243,7 +256,7 @@ GlassPanel {
                 Text {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
-                    text: qsTr("Queue is empty\nDrop audio files anywhere to start listening")
+                    text: qsTr("Queue is empty\nSearch online music or drop audio files anywhere")
                     horizontalAlignment: Text.AlignHCenter
                     color: DesignTokens.textTertiary
                     font.family: DesignTokens.fontFamily

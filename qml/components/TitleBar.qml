@@ -10,10 +10,12 @@ Rectangle {
     property bool isMaximized: false
     property bool miniModeAvailable: true
     property bool railExpanded: false
-    property string stageMode: "rail"
+    property string stageMode: "collapsed"
     property real immersiveFactor: 0.0
 
     signal searchEdited(string text)
+    signal searchSubmitted(string text)
+    signal searchCleared()
     signal toggleMiniMode()
     signal toggleTheme()
     signal openFilesRequested()
@@ -28,6 +30,11 @@ Rectangle {
 
     readonly property bool searchFocused: searchInput.activeFocus
 
+    function focusSearch() {
+        searchInput.forceActiveFocus(Qt.ShortcutFocusReason)
+        searchInput.selectAll()
+    }
+
     function clearSearchFocus() {
         if (searchInput.activeFocus) searchInput.focus = false
     }
@@ -37,6 +44,14 @@ Rectangle {
         const p = searchPill.mapToItem(null, 0, 0)
         return wx >= p.x && wx <= p.x + searchPill.width
             && wy >= p.y && wy <= p.y + searchPill.height
+    }
+
+    function searchPillRectInWindow() {
+        if (!searchPill.visible || searchPill.width <= 0) {
+            return { x: Math.round(root.width * 0.5 - 200), y: 7, width: 400, height: 32 }
+        }
+        const p = searchPill.mapToItem(null, 0, 0)
+        return { x: p.x, y: p.y, width: searchPill.width, height: searchPill.height }
     }
 
     function syncInteractiveRegions() {
@@ -175,7 +190,7 @@ Rectangle {
                 readonly property real maxAllowed: Math.max(180, parent.width - 24)
                 readonly property bool hovered: searchHover.hovered
                 readonly property bool editing: searchInput.activeFocus
-                width: Math.min(maxAllowed, editing ? 430 : (root.compact ? 252 : 332))
+                width: Math.min(maxAllowed, editing ? 460 : (root.compact ? 300 : 388))
                 height: 32
                 radius: 16
                 color: {
@@ -221,19 +236,21 @@ Rectangle {
                     anchors.rightMargin: 10
                     spacing: 8
 
-                    IconGlyph {
-                        name: "search"
-                        size: 14
-                        color: searchPill.editing || (searchPill.hovered && !DesignTokens.isDark)
-                            ? DesignTokens.accent
-                            : (searchPill.hovered ? DesignTokens.textPrimary : DesignTokens.textTertiary)
-                        Behavior on color { ColorAnimation { duration: DesignTokens.animFast } }
+                    BarActionBtn {
+                        iconName: "search"
+                        active: searchPill.editing
+                        Accessible.name: qsTr("Search")
+                        onClicked: {
+                            if (searchInput.text.trim().length > 0) root.searchSubmitted(searchInput.text)
+                            else root.focusSearch()
+                        }
                     }
 
                     TextInput {
                         id: searchInput
                         Layout.fillWidth: true
                         text: root.searchText
+                        Accessible.name: searchPlaceholder.text
                         color: DesignTokens.textPrimary
                         selectionColor: DesignTokens.accent
                         selectedTextColor: DesignTokens.playbackInk
@@ -243,12 +260,17 @@ Rectangle {
                         clip: true
                         verticalAlignment: TextInput.AlignVCenter
                         onTextEdited: root.searchEdited(text)
+                        onAccepted: root.searchSubmitted(text)
                         Keys.onEscapePressed: searchInput.focus = false
 
                         Text {
+                            id: searchPlaceholder
                             anchors.fill: parent
                             verticalAlignment: Text.AlignVCenter
-                            text: qsTr("Search tracks, artists, albums...")
+                            text: root.compact
+                                ? qsTr("Search music or paste link...")
+                                : qsTr("Search music, artists, albums, or paste playlist link...")
+                            elide: Text.ElideRight
                             color: searchPill.editing || searchPill.hovered
                                 ? DesignTokens.textSecondary : DesignTokens.textTertiary
                             font: searchInput.font
@@ -289,8 +311,29 @@ Rectangle {
                             onClicked: {
                                 searchInput.clear()
                                 root.searchEdited("")
+                                root.searchCleared()
                                 searchInput.forceActiveFocus(Qt.MouseFocusReason)
                             }
+                        }
+                    }
+
+                    Rectangle {
+                        visible: !searchPill.editing && searchInput.text.length === 0 && !root.compact
+                        implicitWidth: kbdHintTxt.implicitWidth + 10
+                        implicitHeight: 18
+                        radius: 5
+                        color: DesignTokens.surfaceHover
+                        border.width: 1
+                        border.color: DesignTokens.hairlineBorder
+
+                        Text {
+                            id: kbdHintTxt
+                            anchors.centerIn: parent
+                            text: "Ctrl+K"
+                            color: DesignTokens.textTertiary
+                            font.family: DesignTokens.fontFamily
+                            font.pixelSize: 10
+                            font.weight: Font.Medium
                         }
                     }
                 }

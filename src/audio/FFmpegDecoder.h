@@ -4,17 +4,22 @@
 
 #include <QByteArray>
 #include <QString>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 struct AVFormatContext;
 struct AVCodecContext;
 struct AVFrame;
+struct AVIOContext;
 struct AVPacket;
 struct SwrContext;
 
 namespace virela {
+
+class StreamCacheSession;
 
 class FFmpegDecoder {
 public:
@@ -24,7 +29,8 @@ public:
     FFmpegDecoder(const FFmpegDecoder&) = delete;
     FFmpegDecoder& operator=(const FFmpegDecoder&) = delete;
 
-    // Opens a local audio file (or CUE virtual subtrack range [startMs, endMs]).
+    // Opens a local audio file (or CUE virtual subtrack range [startMs, endMs]),
+    // or an HTTP(S) URL with AVIOInterruptCB + timeout protection.
     // targetSampleRate == 0 keeps track native sample rate (or uses dsdTargetSampleRate for DSD).
     bool open(const QString& filePath,
               int targetSampleRate = 0,
@@ -33,6 +39,22 @@ public:
               int64_t startMs = 0,
               int64_t endMs = 0,
               QString* errorOut = nullptr);
+
+    // Opens a progressive StreamCacheSession via custom AVIOContext (supports Seek + zero-traffic cache).
+    bool openStream(std::shared_ptr<StreamCacheSession> session,
+                    int targetSampleRate = 0,
+                    int targetChannels = 2,
+                    int dsdTargetSampleRate = 176400,
+                    QString* errorOut = nullptr);
+
+    // Reconfigures output resampler sample rate / channel count without closing AVFormatContext.
+    bool reconfigureOutput(int targetSampleRate, int targetChannels, QString* errorOut = nullptr);
+
+    void setExternalAbortFlag(const std::atomic<bool>* flag) noexcept { externalAbort_ = flag; }
+    void requestAbort() noexcept { abortRequested_.store(true, std::memory_order_release); }
+    void setNetworkTimeoutMs(int timeoutMs) noexcept { networkTimeoutMs_ = timeoutMs > 0 ? timeoutMs : 12000; }
+    bool wasAborted() const noexcept;
+    bool wasTimedOut() const noexcept { return timedOut_.load(std::memory_order_acquire); }
 
     void close();
     bool isOpen() const noexcept { return fmtCtx_ != nullptr; }
@@ -64,15 +86,36 @@ public:
 
 private:
     bool initResampler(int targetSampleRate, int targetChannels, QString* errorOut);
+    bool finishOpenCommon(const QString& sourceLabel,
+                          int targetSampleRate,
+                          int targetChannels,
+                          int dsdTargetSampleRate,
+                          QString* errorOut);
     size_t drainPending(float* dst, size_t maxFrames);
     void appendResampledFrames(const float* src, size_t frameCount);
     void discardFramesForPreRoll(size_t& frameCount, const float*& ptr);
 
+    void armIoDeadline() noexcept;
+    void disarmIoDeadline() noexcept;
+    static int avioInterruptCallback(void* opaque) noexcept;
+    static int avioReadPacket(void* opaque, uint8_t* buf, int bufSize);
+    static int64_t avioSeek(void* opaque, int64_t offset, int whence);
+
     AVFormatContext* fmtCtx_ = nullptr;
+    AVIOContext* avioCtx_ = nullptr;
     AVCodecContext* codecCtx_ = nullptr;
     SwrContext* swrCtx_ = nullptr;
     AVPacket* packet_ = nullptr;
     AVFrame* frame_ = nullptr;
+
+    std::shared_ptr<StreamCacheSession> streamSession_;
+    int64_t streamOffset_ = 0;
+    bool isNetworkInput_ = false;
+    int networkTimeoutMs_ = 12000;
+    const std::atomic<bool>* externalAbort_ = nullptr;
+    std::atomic<bool> abortRequested_{false};
+    std::atomic<bool> timedOut_{false};
+    std::atomic<int64_t> ioDeadlineMs_{0};
 
     int audioStreamIndex_ = -1;
     int outSampleRate_ = 48000;

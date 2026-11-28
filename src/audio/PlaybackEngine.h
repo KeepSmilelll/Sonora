@@ -12,11 +12,24 @@
 #include <QVector>
 #include <atomic>
 #include <condition_variable>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <thread>
 
 namespace virela {
+
+class StreamCacheSession;
+
+struct ResolvedOnlinePlayback {
+    QString localCachePath;
+    std::shared_ptr<StreamCacheSession> session;
+    QString directUrl;
+    QString formatBadge;
+    QString codec;
+    int bitrateKbps = 0;
+    QString error;
+};
 
 class PlaybackEngine : public QObject {
     Q_OBJECT
@@ -46,6 +59,7 @@ public:
     PlaybackState state() const noexcept { return state_.load(std::memory_order_acquire); }
     int64_t positionMs() const noexcept;
     int64_t durationMs() const noexcept;
+    double bufferedRatio() const noexcept { return bufferedRatio_.load(std::memory_order_acquire); }
     TrackInfo currentTrack() const;
     int currentIndex() const;
     QVector<TrackInfo> queue() const;
@@ -79,15 +93,20 @@ public:
     // Direct RT pull helper exposed for deterministic unit tests (with NullAudioOutput)
     void renderFramesForTest(float* interleavedOut, uint32_t frameCount, uint32_t channels);
 
+    using OnlineStreamResolverFn = std::function<ResolvedOnlinePlayback(const TrackInfo&, const std::atomic<bool>*)>;
+    void setOnlineStreamResolver(OnlineStreamResolverFn fn);
+
 signals:
     void stateChanged(virela::PlaybackState state);
     void currentTrackChanged(const virela::TrackInfo& track, int queueIndex);
     void queueChanged();
     void positionChanged(qint64 positionMs);
     void durationChanged(qint64 durationMs);
+    void bufferedRatioChanged(double ratio);
     void outputStatusChanged(const virela::ActiveOutputStatus& status);
     void errorOccurred(const QString& message);
     void trackPlaybackStarted(qint64 trackId);
+    void trackStartedPlayback(const virela::TrackInfo& track);
 
 private:
     enum class DecodeCommandType {
@@ -178,6 +197,14 @@ private:
 
     QTimer uiTickTimer_;
     int64_t lastEmittedPosMs_ = -1;
+    double lastEmittedBufferedRatio_ = 0.0;
+
+    mutable std::mutex streamSessionMutex_;
+    std::shared_ptr<StreamCacheSession> activeStreamSession_;
+    std::atomic<double> bufferedRatio_{0.0};
+
+    mutable std::mutex resolverMutex_;
+    OnlineStreamResolverFn onlineStreamResolver_;
 };
 
 } // namespace virela

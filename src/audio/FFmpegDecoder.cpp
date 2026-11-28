@@ -1,9 +1,11 @@
 #include "audio/FFmpegDecoder.h"
 #include "core/TextEncodingHelper.h"
+#include "online/StreamCacheManager.h"
 
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -235,14 +237,18 @@ void populateTrackInfoFromContext(const QString& filePath,
                                   TrackInfo& info) {
     const AVStream* stream = fmtCtx->streams[streamIdx];
     const AVCodecParameters* par = stream->codecpar;
-    const QFileInfo fi(filePath);
+    const bool isHttpUrl = filePath.startsWith(QStringLiteral("http://"), Qt::CaseInsensitive)
+        || filePath.startsWith(QStringLiteral("https://"), Qt::CaseInsensitive);
+    const QFileInfo fi(isHttpUrl ? QString() : filePath);
 
     info.filePath = filePath;
-    info.fileSize = fi.size();
-    info.fileMtime = fi.lastModified().toSecsSinceEpoch();
+    if (!isHttpUrl && fi.exists()) {
+        info.fileSize = fi.size();
+        info.fileMtime = fi.lastModified().toSecsSinceEpoch();
+    }
 
     info.title = readTagMerged(fmtCtx->metadata, stream->metadata, "title");
-    if (info.title.isEmpty()) {
+    if (info.title.isEmpty() && !isHttpUrl && !fi.completeBaseName().isEmpty()) {
         info.title = fi.completeBaseName();
     }
     info.artist = readTagMerged(fmtCtx->metadata, stream->metadata, "artist");
@@ -316,7 +322,101 @@ FFmpegDecoder::~FFmpegDecoder() {
     close();
 }
 
+bool FFmpegDecoder::wasAborted() const noexcept {
+    return abortRequested_.load(std::memory_order_acquire)
+        || (externalAbort_ && externalAbort_->load(std::memory_order_acquire));
+}
+
+void FFmpegDecoder::armIoDeadline() noexcept {
+    const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    ioDeadlineMs_.store(nowMs + std::max(500, networkTimeoutMs_), std::memory_order_release);
+}
+
+void FFmpegDecoder::disarmIoDeadline() noexcept {
+    ioDeadlineMs_.store(0, std::memory_order_release);
+}
+
+int FFmpegDecoder::avioInterruptCallback(void* opaque) noexcept {
+    auto* self = static_cast<FFmpegDecoder*>(opaque);
+    if (!self) return 0;
+    if (self->abortRequested_.load(std::memory_order_acquire)) {
+        return 1;
+    }
+    if (self->externalAbort_ && self->externalAbort_->load(std::memory_order_acquire)) {
+        return 1;
+    }
+    const int64_t deadline = self->ioDeadlineMs_.load(std::memory_order_acquire);
+    if (deadline > 0) {
+        const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        if (nowMs >= deadline) {
+            self->timedOut_.store(true, std::memory_order_release);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int FFmpegDecoder::avioReadPacket(void* opaque, uint8_t* buf, int bufSize) {
+    auto* self = static_cast<FFmpegDecoder*>(opaque);
+    if (!self || !self->streamSession_) return AVERROR(EIO);
+    bool timedOut = false;
+    bool aborted = false;
+    const int n = self->streamSession_->readAt(
+        self->streamOffset_,
+        buf,
+        bufSize,
+        self->networkTimeoutMs_,
+        self->externalAbort_,
+        &timedOut,
+        &aborted);
+    if (n > 0) {
+        self->streamOffset_ += n;
+        return n;
+    }
+    if (n == 0) {
+        return AVERROR_EOF;
+    }
+    if (timedOut) {
+        self->timedOut_.store(true, std::memory_order_release);
+        return AVERROR_EXIT;
+    }
+    if (aborted || self->abortRequested_.load(std::memory_order_acquire)) {
+        self->abortRequested_.store(true, std::memory_order_release);
+        return AVERROR_EXIT;
+    }
+    return AVERROR(EIO);
+}
+
+int64_t FFmpegDecoder::avioSeek(void* opaque, int64_t offset, int whence) {
+    auto* self = static_cast<FFmpegDecoder*>(opaque);
+    if (!self || !self->streamSession_) return AVERROR(ENOSYS);
+    const int64_t total = self->streamSession_->totalSize();
+    if (whence == AVSEEK_SIZE) {
+        return total > 0 ? total : AVERROR(ENOSYS);
+    }
+    int64_t newPos = -1;
+    const int baseWhence = whence & ~AVSEEK_FORCE;
+    if (baseWhence == SEEK_SET) {
+        newPos = offset;
+    } else if (baseWhence == SEEK_CUR) {
+        newPos = self->streamOffset_ + offset;
+    } else if (baseWhence == SEEK_END) {
+        if (total <= 0) return AVERROR(ENOSYS);
+        newPos = total + offset;
+    } else {
+        return AVERROR(ENOSYS);
+    }
+    if (newPos < 0 || (total > 0 && newPos > total)) {
+        return AVERROR(EINVAL);
+    }
+    self->streamOffset_ = newPos;
+    return newPos;
+}
+
 void FFmpegDecoder::close() {
+    disarmIoDeadline();
     if (swrCtx_) {
         swr_free(&swrCtx_);
     }
@@ -332,6 +432,16 @@ void FFmpegDecoder::close() {
     if (fmtCtx_) {
         avformat_close_input(&fmtCtx_);
     }
+    if (avioCtx_) {
+        av_freep(&avioCtx_->buffer);
+        avio_context_free(&avioCtx_);
+    }
+    if (streamSession_) {
+        streamSession_->releaseReader();
+        streamSession_.reset();
+    }
+    streamOffset_ = 0;
+    isNetworkInput_ = false;
     audioStreamIndex_ = -1;
     pendingBuffer_.clear();
     pendingBuffer_.shrink_to_fit();
@@ -354,19 +464,159 @@ bool FFmpegDecoder::open(const QString& filePath,
                          int64_t endMs,
                          QString* errorOut) {
     close();
+    abortRequested_.store(false, std::memory_order_release);
+    timedOut_.store(false, std::memory_order_release);
     filePath_ = filePath;
     startMs_ = std::max<int64_t>(0, startMs);
     endMs_ = std::max<int64_t>(0, endMs);
 
+    isNetworkInput_ = filePath.startsWith(QStringLiteral("http://"), Qt::CaseInsensitive)
+        || filePath.startsWith(QStringLiteral("https://"), Qt::CaseInsensitive);
+
+    fmtCtx_ = avformat_alloc_context();
+    if (!fmtCtx_) {
+        if (errorOut) *errorOut = QStringLiteral("avformat_alloc_context failed");
+        return false;
+    }
+    fmtCtx_->interrupt_callback.callback = &FFmpegDecoder::avioInterruptCallback;
+    fmtCtx_->interrupt_callback.opaque = this;
+
+    AVDictionary* opts = nullptr;
+    if (isNetworkInput_) {
+        const QByteArray timeoutUs = QByteArray::number(static_cast<qint64>(std::max(1000, networkTimeoutMs_)) * 1000LL);
+        av_dict_set(&opts, "rw_timeout", timeoutUs.constData(), 0);
+        av_dict_set(&opts, "timeout", timeoutUs.constData(), 0);
+        av_dict_set(&opts, "reconnect", "1", 0);
+        av_dict_set(&opts, "reconnect_streamed", "1", 0);
+        av_dict_set(&opts, "reconnect_delay_max", "3", 0);
+        av_dict_set(&opts, "user_agent", "Virela/2.0", 0);
+        armIoDeadline();
+    }
+
     const QByteArray pathUtf8 = filePath.toUtf8();
-    int ret = avformat_open_input(&fmtCtx_, pathUtf8.constData(), nullptr, nullptr);
+    int ret = avformat_open_input(&fmtCtx_, pathUtf8.constData(), nullptr, &opts);
+    av_dict_free(&opts);
+    disarmIoDeadline();
     if (ret < 0) {
-        if (errorOut) *errorOut = QStringLiteral("avformat_open_input failed: ") + ffErrorString(ret);
+        if (errorOut) {
+            if (timedOut_.load(std::memory_order_acquire)) {
+                *errorOut = QStringLiteral("Network stream timed out");
+            } else if (wasAborted()) {
+                *errorOut = QStringLiteral("Stream open aborted");
+            } else {
+                *errorOut = QStringLiteral("avformat_open_input failed: ") + ffErrorString(ret);
+            }
+        }
         close();
         return false;
     }
 
-    ret = avformat_find_stream_info(fmtCtx_, nullptr);
+    return finishOpenCommon(filePath, targetSampleRate, targetChannels, dsdTargetSampleRate, errorOut);
+}
+
+bool FFmpegDecoder::openStream(std::shared_ptr<StreamCacheSession> session,
+                               int targetSampleRate,
+                               int targetChannels,
+                               int dsdTargetSampleRate,
+                               QString* errorOut) {
+    close();
+    abortRequested_.store(false, std::memory_order_release);
+    timedOut_.store(false, std::memory_order_release);
+
+    if (!session) {
+        if (errorOut) *errorOut = QStringLiteral("Null stream session");
+        return false;
+    }
+
+    session->addReader();
+    streamSession_ = std::move(session);
+    isNetworkInput_ = true;
+
+    bool hdrTimedOut = false;
+    if (!streamSession_->waitForHeaders(networkTimeoutMs_, externalAbort_, &hdrTimedOut)) {
+        if (hdrTimedOut) {
+            timedOut_.store(true, std::memory_order_release);
+            if (errorOut) *errorOut = QStringLiteral("Online stream headers timed out");
+        } else if (wasAborted()) {
+            if (errorOut) *errorOut = QStringLiteral("Online stream aborted");
+        } else {
+            if (errorOut) {
+                *errorOut = streamSession_->errorString().isEmpty()
+                    ? QStringLiteral("Failed to open online stream")
+                    : streamSession_->errorString();
+            }
+        }
+        close();
+        return false;
+    }
+
+    constexpr int kAvioBufSize = 32768;
+    auto* avioBuf = static_cast<uint8_t*>(av_malloc(kAvioBufSize));
+    if (!avioBuf) {
+        if (errorOut) *errorOut = QStringLiteral("Failed to allocate AVIO buffer");
+        close();
+        return false;
+    }
+
+    avioCtx_ = avio_alloc_context(
+        avioBuf,
+        kAvioBufSize,
+        0,
+        this,
+        &FFmpegDecoder::avioReadPacket,
+        nullptr,
+        &FFmpegDecoder::avioSeek);
+    if (!avioCtx_) {
+        av_free(avioBuf);
+        if (errorOut) *errorOut = QStringLiteral("avio_alloc_context failed");
+        close();
+        return false;
+    }
+    avioCtx_->seekable = (streamSession_->totalSize() > 0 && streamSession_->acceptRanges())
+        ? AVIO_SEEKABLE_NORMAL
+        : 0;
+
+    fmtCtx_ = avformat_alloc_context();
+    if (!fmtCtx_) {
+        if (errorOut) *errorOut = QStringLiteral("avformat_alloc_context failed");
+        close();
+        return false;
+    }
+    fmtCtx_->interrupt_callback.callback = &FFmpegDecoder::avioInterruptCallback;
+    fmtCtx_->interrupt_callback.opaque = this;
+    fmtCtx_->pb = avioCtx_;
+    fmtCtx_->flags |= AVFMT_FLAG_CUSTOM_IO;
+
+    const QString ext = streamSession_->ext().isEmpty() ? QStringLiteral("mp3") : streamSession_->ext();
+    const QByteArray hintName = QStringLiteral("stream.%1").arg(ext).toUtf8();
+    armIoDeadline();
+    int ret = avformat_open_input(&fmtCtx_, hintName.constData(), nullptr, nullptr);
+    disarmIoDeadline();
+    if (ret < 0) {
+        if (errorOut) {
+            if (timedOut_.load(std::memory_order_acquire)) {
+                *errorOut = QStringLiteral("Online stream timed out");
+            } else if (wasAborted()) {
+                *errorOut = QStringLiteral("Online stream aborted");
+            } else {
+                *errorOut = QStringLiteral("avformat_open_input(stream) failed: ") + ffErrorString(ret);
+            }
+        }
+        close();
+        return false;
+    }
+
+    return finishOpenCommon(QString(), targetSampleRate, targetChannels, dsdTargetSampleRate, errorOut);
+}
+
+bool FFmpegDecoder::finishOpenCommon(const QString& sourceLabel,
+                                     int targetSampleRate,
+                                     int targetChannels,
+                                     int dsdTargetSampleRate,
+                                     QString* errorOut) {
+    if (isNetworkInput_) armIoDeadline();
+    int ret = avformat_find_stream_info(fmtCtx_, nullptr);
+    disarmIoDeadline();
     if (ret < 0) {
         if (errorOut) *errorOut = QStringLiteral("avformat_find_stream_info failed: ") + ffErrorString(ret);
         close();
@@ -406,7 +656,7 @@ bool FFmpegDecoder::open(const QString& filePath,
     }
 
     info_ = TrackInfo{};
-    populateTrackInfoFromContext(filePath, fmtCtx_, audioStreamIndex_, info_);
+    populateTrackInfoFromContext(sourceLabel, fmtCtx_, audioStreamIndex_, info_);
     if (endMs_ > startMs_) {
         info_.startMs = startMs_;
         info_.endMs = endMs_;
@@ -451,6 +701,32 @@ bool FFmpegDecoder::open(const QString& filePath,
         seekRelativeMs(0);
     }
 
+    return true;
+}
+
+bool FFmpegDecoder::reconfigureOutput(int targetSampleRate, int targetChannels, QString* errorOut) {
+    if (!fmtCtx_ || !codecCtx_) {
+        if (errorOut) *errorOut = QStringLiteral("Decoder not open");
+        return false;
+    }
+    const int chosenRate = targetSampleRate > 0
+        ? targetSampleRate
+        : (info_.isDsd ? 176400 : (codecCtx_->sample_rate > 0 ? codecCtx_->sample_rate : 44100));
+    const int chosenChannels = targetChannels > 0 ? targetChannels : 2;
+    if (chosenRate == outSampleRate_ && chosenChannels == outChannels_ && swrCtx_) {
+        return true;
+    }
+
+    const int64_t curTimeline = currentTimelineMs();
+    pendingBuffer_.clear();
+    pendingReadOffset_ = 0;
+    if (!initResampler(chosenRate, chosenChannels, errorOut)) {
+        return false;
+    }
+    emittedSubtrackFrames_ = (curTimeline * outSampleRate_) / 1000;
+    if (endMs_ > startMs_) {
+        maxSubtrackFrames_ = ((endMs_ - startMs_) * outSampleRate_) / 1000;
+    }
     return true;
 }
 
@@ -517,13 +793,16 @@ bool FFmpegDecoder::seekRelativeMs(int64_t relativeMs) {
     const int64_t targetTs = av_rescale_q(absTargetMs, AVRational{1, 1000}, stream->time_base);
 
     // Seek slightly backward to ensure lossless/MP3 bit-reservoir frames decode cleanly
+    if (isNetworkInput_) armIoDeadline();
     int ret = av_seek_frame(fmtCtx_, audioStreamIndex_, targetTs, AVSEEK_FLAG_BACKWARD);
     if (ret < 0) {
         ret = av_seek_frame(fmtCtx_, -1, absTargetMs * (AV_TIME_BASE / 1000), AVSEEK_FLAG_BACKWARD);
         if (ret < 0) {
+            disarmIoDeadline();
             return false;
         }
     }
+    disarmIoDeadline();
 
     avcodec_flush_buffers(codecCtx_);
     if (swrCtx_) {
@@ -631,7 +910,9 @@ size_t FFmpegDecoder::decodeFrames(float* outInterleaved, size_t maxFrames, bool
             }
             bool packetSent = false;
             while (!packetSent) {
+                if (isNetworkInput_) armIoDeadline();
                 int readRet = av_read_frame(fmtCtx_, packet_);
+                disarmIoDeadline();
                 if (readRet == AVERROR_EOF) {
                     avcodec_send_packet(codecCtx_, nullptr);
                     decoderFlushed_ = true;

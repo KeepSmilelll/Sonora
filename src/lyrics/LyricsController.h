@@ -45,13 +45,16 @@ public:
     qint64 userOffsetMs() const { return userOffsetMs_; }
     void setUserOffsetMs(qint64 offsetMs);
     qint64 effectivePositionMs() const { return effectivePositionMs_; }
-    qreal activeLineProgress() const { return activeLineProgress_; }
+    qreal activeLineProgress() const;
     QString activeLineText() const;
     QString activeLineTranslation() const;
     QString sourceLabel() const { return parsed_.sourceLabel; }
     int lineCount() const { return static_cast<int>(parsed_.lines.size()); }
 
     Q_INVOKABLE void loadForTrack(const QString& audioFilePath, const QString& embeddedLyrics = {});
+    Q_INVOKABLE void loadRawLyrics(const QString& primaryLyrics,
+                                   const QString& translationLyrics = {},
+                                   const QString& sourceLabel = {});
     Q_INVOKABLE void clear();
     Q_INVOKABLE void updatePositionMs(qint64 positionMs);
     Q_INVOKABLE void adjustOffsetMs(qint64 deltaMs);
@@ -73,7 +76,6 @@ private:
     qint64 userOffsetMs_ = 0;
     qint64 lastPositionMs_ = 0;
     qint64 effectivePositionMs_ = 0;
-    qreal activeLineProgress_ = 0.0;
 };
 
 } // namespace virela

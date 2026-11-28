@@ -20,6 +20,7 @@ Item {
     property bool draggingResize: false
     property bool eqOpen: false
     property int trackSwitchDirection: 1 // 1 = forward, -1 = backward
+    property string currentDownloadStatus: "none"
 
     readonly property real immersiveLeftColWidth: immersiveView.immGeom.leftColW
     readonly property real liveBassEnergy: (root.controller.isPlaying
@@ -33,68 +34,53 @@ Item {
     signal toggleFavorite()
     signal toggleEq()
     signal openTrackInfo()
+    signal downloadCurrentRequested()
     signal dragResize(real deltaX)
     signal dragResizeFinished(real currentWidth)
 
     clip: true
 
-    // Shared master LP vinyl rotation across Rail & Immersive views (0 idle CPU when paused/hidden)
+    readonly property bool windowExposed: root.Window.window !== null
+        && root.Window.window.visible
+        && root.Window.window.visibility !== Window.Minimized
+
+    // Shared master LP vinyl rotation across Rail & Immersive views (synchronized 30 Hz audio tick, 0 idle CPU when paused/hidden/minimized)
     property real sharedVinylAngle: 0.0
     property real _vinylSpeed: 0.0
+    property double _lastVinylTickMs: 0.0
     readonly property real _targetVinylSpeed: root.controller.isPlaying ? 24.0 : 0.0
 
-    FrameAnimation {
-        running: root.visible && (root.controller.isPlaying || root._vinylSpeed > 0.15)
-        onTriggered: {
-            const dt = Math.min(0.05, frameTime)
-            const accel = root.controller.isPlaying ? 4.8 : 2.8
-            root._vinylSpeed += (root._targetVinylSpeed - root._vinylSpeed) * Math.min(1.0, dt * accel)
-            if (!root.controller.isPlaying && root._vinylSpeed < 0.15) {
-                root._vinylSpeed = 0.0
-                return
-            }
-            root.sharedVinylAngle = (root.sharedVinylAngle + root._vinylSpeed * dt) % 360.0
+    function stepVinylRotation() {
+        const now = Date.now()
+        const dt = _lastVinylTickMs > 0
+            ? Math.max(0.005, Math.min(0.08, (now - _lastVinylTickMs) / 1000.0))
+            : 0.033
+        _lastVinylTickMs = now
+        const accel = root.controller.isPlaying ? 4.8 : 2.8
+        _vinylSpeed += (_targetVinylSpeed - _vinylSpeed) * Math.min(1.0, dt * accel)
+        if (!root.controller.isPlaying && _vinylSpeed < 0.15) {
+            _vinylSpeed = 0.0
+            return
         }
+        sharedVinylAngle = (sharedVinylAngle + _vinylSpeed * dt) % 360.0
     }
 
-    // Zero-lag 60fps audio-clock interpolation for true word-timed karaoke lyrics
-    // (0 idle CPU on ordinary line-level LRC or when paused)
-    property real liveEffectivePositionMs: 0.0
-    property real _clockAnchorPosMs: 0.0
-    property double _clockAnchorWallMs: 0.0
-
-    FrameAnimation {
+    Timer {
+        id: vinylCoastTimer
+        interval: 33
+        repeat: true
         running: root.visible
+            && root.windowExposed
             && root.stageMode !== "collapsed"
-            && root.activeTab === "lyrics"
-            && root.controller.isPlaying
-            && root.lyricsCtrl.hasEnhancedWords
-        onTriggered: {
-            const elapsed = Math.max(0.0, Math.min(80.0, Date.now() - root._clockAnchorWallMs))
-            root.liveEffectivePositionMs = root._clockAnchorPosMs + elapsed
-        }
+            && !root.controller.isPlaying
+            && root._vinylSpeed > 0.15
+        onRunningChanged: if (running) root._lastVinylTickMs = Date.now()
+        onTriggered: root.stepVinylRotation()
     }
 
-    Connections {
-        target: root.lyricsCtrl
-        function onPositionProgressChanged() {
-            const target = root.lyricsCtrl.effectivePositionMs
-            root._clockAnchorPosMs = target
-            root._clockAnchorWallMs = Date.now()
-            if (!root.controller.isPlaying || !root.lyricsCtrl.hasEnhancedWords
-                || Math.abs(target - root.liveEffectivePositionMs) > 90) {
-                root.liveEffectivePositionMs = target
-            } else if (target > root.liveEffectivePositionMs) {
-                root.liveEffectivePositionMs = target
-            }
-        }
-        function onLyricsChanged() {
-            const target = root.lyricsCtrl.effectivePositionMs
-            root._clockAnchorPosMs = target
-            root._clockAnchorWallMs = Date.now()
-            root.liveEffectivePositionMs = target
-        }
-    }
+    // Synchronized 30 Hz audio clock for word-timed karaoke lyrics (0 idle CPU when paused)
+    readonly property real liveEffectivePositionMs: visible && windowExposed && activeTab === "lyrics"
+        && lyricsCtrl.hasEnhancedWords ? lyricsCtrl.effectivePositionMs : 0
 
     // Deterministic closed-form circular vinyl geometry shared by QML items & HeroTransitionLayer
     function computeRailCoverGeometry(stageW) {
@@ -247,11 +233,16 @@ Item {
             }
             root.lastTrackIdentity = idKey
         }
-        function onIsPlayingChanged() {
-            const target = root.lyricsCtrl.effectivePositionMs
-            root._clockAnchorPosMs = target
-            root._clockAnchorWallMs = Date.now()
-            root.liveEffectivePositionMs = target
+        function onStateChanged() {
+            root._lastVinylTickMs = Date.now()
+        }
+        function onPositionChanged() {
+            if (root.visible
+                && root.windowExposed
+                && root.stageMode !== "collapsed"
+                && root.controller.isPlaying) {
+                root.stepVinylRotation()
+            }
         }
     }
 
@@ -614,7 +605,7 @@ Item {
 
                     Item {
                         id: railFavBtn
-                        visible: root.controller.hasTrack && root.controller.trackId >= 0
+                        visible: root.controller.hasTrack
                         implicitWidth: 24
                         implicitHeight: 24
                         property real popScale: 1.0
@@ -648,16 +639,29 @@ Item {
                     }
                 }
 
-                Text {
-                    Layout.fillWidth: true
-                    horizontalAlignment: Text.AlignHCenter
-                    elide: Text.ElideRight
-                    text: root.controller.hasTrack
-                        ? (root.controller.trackArtist.length > 0 ? root.controller.trackArtist : qsTr("Unknown Artist"))
-                        : qsTr("Drop audio files or pick a track to begin")
-                    color: DesignTokens.textSecondary
-                    font.family: DesignTokens.fontFamily
-                    font.pixelSize: 12
+                RowLayout {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.maximumWidth: parent.width - 8
+                    spacing: 5
+
+                    IconGlyph {
+                        visible: root.controller.hasTrack && root.controller.trackIsOnline
+                        name: "cloud"
+                        size: 11
+                        color: DesignTokens.accentLight
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideRight
+                        text: root.controller.hasTrack
+                            ? (root.controller.trackArtist.length > 0 ? root.controller.trackArtist : qsTr("Unknown Artist"))
+                            : qsTr("Search online or pick a track to begin")
+                        color: DesignTokens.textSecondary
+                        font.family: DesignTokens.fontFamily
+                        font.pixelSize: 12
+                    }
                 }
 
                 RowLayout {
@@ -720,7 +724,7 @@ Item {
                     topMargin: Math.round(height * 0.28)
                     bottomMargin: Math.round(height * 0.42)
                     boundsBehavior: Flickable.StopAtBounds
-                    model: root.lyricsCtrl
+                    model: (railView.visible && root.activeTab === "lyrics") ? root.lyricsCtrl : null
                     preferredHighlightBegin: Math.round(height * 0.28)
                     preferredHighlightEnd: Math.round(height * 0.40)
                     highlightRangeMode: userScrolling ? ListView.NoHighlightRange : ListView.StrictlyEnforceRange
@@ -735,6 +739,9 @@ Item {
                         userScrolling = true
                         railResumeTimer.restart()
                     }
+                    onModelChanged: if (model) Qt.callLater(function() {
+                        if (count > 0) positionViewAtIndex(Math.max(0, root.lyricsCtrl.activeLineIndex), ListView.Center)
+                    })
                     onCountChanged: Qt.callLater(function() {
                         if (count > 0) positionViewAtIndex(Math.max(0, root.lyricsCtrl.activeLineIndex), ListView.Center)
                     })
@@ -821,8 +828,8 @@ Item {
                                                 y: rlWordSlot.liftOffset
                                                 text: rlWordSlot.modelData.text
                                                 textFormat: Text.PlainText
-                                                color: DesignTokens.textSecondary
-                                                opacity: 0.42
+                                                color: rlWordSlot.fillRatio >= 1 ? DesignTokens.textPrimary : DesignTokens.textSecondary
+                                                opacity: rlWordSlot.fillRatio >= 1 ? 1 : 0.42
                                                 font: rlMeasureText.font
                                             }
 
@@ -831,6 +838,7 @@ Item {
                                                 anchors.top: parent.top
                                                 height: rlWordBase.height
                                                 width: rlWordBase.width * rlWordSlot.fillRatio
+                                                visible: rlWordSlot.fillRatio > 0 && rlWordSlot.fillRatio < 1
                                                 clip: true
 
                                                 Text {
@@ -925,9 +933,9 @@ Item {
                     clip: true
                     spacing: 4
                     reuseItems: true
-                    cacheBuffer: 200
+                    cacheBuffer: 120
                     boundsBehavior: Flickable.StopAtBounds
-                    model: root.controller.queueModel
+                    model: (railView.visible && root.activeTab === "queue") ? root.controller.queueModel : null
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
                     delegate: Item {
@@ -936,8 +944,10 @@ Item {
                         required property string title
                         required property string artist
                         required property string coverHash
+                        required property string coverUrl
                         required property int durationMs
                         required property bool isCurrent
+                        required property bool isOnline
 
                         readonly property bool hovered: rqMa.containsMouse || rqRmMa.containsMouse
                         readonly property bool nextStartsHere: root.controller.currentIndex >= 0
@@ -992,7 +1002,8 @@ Item {
                                     id: rqCover
                                     anchors.fill: parent
                                     source: rqRow.isCurrent ? root.controller.trackCoverUrl
-                                        : (rqRow.coverHash.length > 0 ? "image://cover/" + rqRow.coverHash + "?size=96" : "")
+                                        : (rqRow.coverHash.length > 0 ? "image://cover/" + rqRow.coverHash + "?size=96" : rqRow.coverUrl)
+                                    sourceSize: Qt.size(96, 96)
                                     fillMode: Image.PreserveAspectCrop
                                     asynchronous: true
                                     cache: false
@@ -1011,19 +1022,29 @@ Item {
                                     font.pixelSize: 12
                                     font.weight: rqRow.isCurrent ? Font.DemiBold : Font.Medium
                                 }
-                                Text {
+                                RowLayout {
                                     Layout.fillWidth: true
-                                    text: rqRow.artist.length > 0 ? rqRow.artist : qsTr("Unknown Artist")
-                                    elide: Text.ElideRight
-                                    color: DesignTokens.textTertiary
-                                    font.family: DesignTokens.fontFamily
-                                    font.pixelSize: 10
+                                    spacing: 4
+                                    IconGlyph {
+                                        visible: rqRow.isOnline
+                                        name: "cloud"
+                                        size: 10
+                                        color: DesignTokens.textTertiary
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: rqRow.artist.length > 0 ? rqRow.artist : qsTr("Unknown Artist")
+                                        elide: Text.ElideRight
+                                        color: DesignTokens.textTertiary
+                                        font.family: DesignTokens.fontFamily
+                                        font.pixelSize: 10
+                                    }
                                 }
                             }
 
                             NowPlayingBars {
                                 visible: rqRow.isCurrent && !rqRow.hovered
-                                playing: root.controller.isPlaying
+                                controller: root.controller
                                 size: 13
                             }
 
@@ -1084,7 +1105,7 @@ Item {
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
                             horizontalAlignment: Text.AlignHCenter
-                            text: qsTr("Queue is empty\nDrop audio files anywhere to start listening")
+                            text: qsTr("Queue is empty\nSearch online music or drop audio files anywhere")
                             color: DesignTokens.textTertiary
                             font.family: DesignTokens.fontFamily
                             font.pixelSize: 11
@@ -1184,20 +1205,35 @@ Item {
                         font.weight: Font.Bold
                     }
 
-                    Text {
-                        width: parent.width
+                    RowLayout {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        width: Math.min(parent.width, immArtistLbl.implicitWidth + (immCloudIcon.visible ? 18 : 0))
                         height: 20
-                        verticalAlignment: Text.AlignVCenter
-                        horizontalAlignment: Text.AlignHCenter
-                        elide: Text.ElideRight
-                        text: root.controller.hasTrack
-                            ? (root.controller.trackAlbum.length > 0
-                                ? (root.controller.trackArtist + " — " + root.controller.trackAlbum)
-                                : root.controller.trackArtist)
-                            : qsTr("Drop audio files or pick a track to begin")
-                        color: DesignTokens.textSecondary
-                        font.family: DesignTokens.fontFamily
-                        font.pixelSize: 13
+                        spacing: 5
+
+                        IconGlyph {
+                            id: immCloudIcon
+                            visible: root.controller.hasTrack && root.controller.trackIsOnline
+                            name: "cloud"
+                            size: 12
+                            color: DesignTokens.accentLight
+                        }
+
+                        Text {
+                            id: immArtistLbl
+                            Layout.fillWidth: true
+                            verticalAlignment: Text.AlignVCenter
+                            horizontalAlignment: Text.AlignHCenter
+                            elide: Text.ElideRight
+                            text: root.controller.hasTrack
+                                ? (root.controller.trackAlbum.length > 0
+                                    ? (root.controller.trackArtist + " — " + root.controller.trackAlbum)
+                                    : root.controller.trackArtist)
+                                : qsTr("Search online or pick a track to begin")
+                            color: DesignTokens.textSecondary
+                            font.family: DesignTokens.fontFamily
+                            font.pixelSize: 13
+                        }
                     }
                 }
 
@@ -1221,7 +1257,7 @@ Item {
                     }
                     Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
-                        visible: root.controller.trackId >= 0
+                        visible: root.controller.hasTrack
                         width: 26
                         height: 26
                         radius: 13
@@ -1286,6 +1322,14 @@ Item {
                             radius: height / 2
                             color: DesignTokens.playbackRail
                             Behavior on height { NumberAnimation { duration: 130; easing.type: Easing.OutCubic } }
+
+                            Rectangle {
+                                visible: root.controller.trackIsOnline && root.controller.bufferedRatio > 0.001
+                                width: parent.width * Math.max(0.0, Math.min(1.0, root.controller.bufferedRatio))
+                                height: parent.height
+                                radius: parent.radius
+                                color: Qt.rgba(DesignTokens.accent.r, DesignTokens.accent.g, DesignTokens.accent.b, 0.34)
+                            }
 
                             Rectangle {
                                 visible: root.controller.durationMs > 0
@@ -1441,6 +1485,29 @@ Item {
                             }
                         }
 
+                        Item {
+                            anchors.fill: parent
+                            anchors.margins: -3
+                            visible: root.controller.isBuffering
+
+                            Rectangle {
+                                width: 6
+                                height: 6
+                                radius: 3
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                anchors.top: parent.top
+                                color: DesignTokens.accentLight
+                            }
+
+                            RotationAnimation on rotation {
+                                running: root.controller.isBuffering
+                                from: 0
+                                to: 360
+                                duration: 900
+                                loops: Animation.Infinite
+                            }
+                        }
+
                         MouseArea {
                             id: immPlayMa
                             anchors.fill: parent
@@ -1491,6 +1558,24 @@ Item {
                         onClicked: root.openTrackInfo()
                     }
 
+                    ImmIconBtn {
+                        readonly property bool isDlActive: root.currentDownloadStatus === "downloading" || root.currentDownloadStatus === "queued"
+                        iconName: root.currentDownloadStatus === "done" ? "check" : "download"
+                        iconSize: 15
+                        active: root.currentDownloadStatus === "done"
+                        visible: root.controller.hasTrack && root.controller.trackIsOnline
+                        enabled: !isDlActive
+                        opacity: isDlActive ? 0.55 : 1.0
+                        SequentialAnimation on opacity {
+                            running: root.controller.hasTrack && root.controller.trackIsOnline
+                                && (root.currentDownloadStatus === "downloading" || root.currentDownloadStatus === "queued")
+                            loops: Animation.Infinite
+                            NumberAnimation { from: 0.35; to: 0.90; duration: 650; easing.type: Easing.InOutSine }
+                            NumberAnimation { from: 0.90; to: 0.35; duration: 650; easing.type: Easing.InOutSine }
+                        }
+                        onClicked: root.downloadCurrentRequested()
+                    }
+
                     Item { Layout.fillWidth: true }
 
                     ImmIconBtn {
@@ -1533,7 +1618,7 @@ Item {
                     topMargin: Math.round(height * 0.36)
                     bottomMargin: Math.round(height * 0.50)
                     boundsBehavior: Flickable.StopAtBounds
-                    model: root.lyricsCtrl
+                    model: (immersiveView.visible && root.activeTab === "lyrics") ? root.lyricsCtrl : null
                     preferredHighlightBegin: Math.round(height * 0.36)
                     preferredHighlightEnd: Math.round(height * 0.45)
                     highlightRangeMode: userScrolling ? ListView.NoHighlightRange : ListView.StrictlyEnforceRange
@@ -1551,6 +1636,7 @@ Item {
                     }
 
                     Component.onCompleted: Qt.callLater(function() { recenter(true) })
+                    onModelChanged: if (model) Qt.callLater(function() { recenter(true) })
                     onHeightChanged: if (!userScrolling) Qt.callLater(function() { recenter(true) })
                     onCountChanged: Qt.callLater(function() { recenter(true) })
                     onMovementStarted: {
@@ -1649,8 +1735,8 @@ Item {
                                             y: wordSlot.liftOffset
                                             text: wordSlot.modelData.text
                                             textFormat: Text.PlainText
-                                            color: DesignTokens.textSecondary
-                                            opacity: 0.40
+                                            color: wordSlot.fillRatio >= 1 ? DesignTokens.textPrimary : DesignTokens.textSecondary
+                                            opacity: wordSlot.fillRatio >= 1 ? 1 : 0.40
                                             font.family: DesignTokens.fontFamily
                                             font.pixelSize: root.width < 990 ? 25 : 30
                                             font.weight: Font.Bold
@@ -1661,6 +1747,7 @@ Item {
                                             anchors.top: parent.top
                                             height: wordBase.height
                                             width: wordBase.width * wordSlot.fillRatio
+                                            visible: wordSlot.fillRatio > 0 && wordSlot.fillRatio < 1
                                             clip: true
 
                                             Text {
@@ -1759,7 +1846,9 @@ Item {
                             Layout.fillWidth: true
                             horizontalAlignment: Text.AlignHCenter
                             wrapMode: Text.WordWrap
-                            text: qsTr("Place a matching .lrc file next to the audio file or embed USLT/LYRICS tags.")
+                            text: root.controller.trackIsOnline
+                                ? qsTr("No online lyrics matched for this track.")
+                                : qsTr("Place a matching .lrc file next to the audio file or embed USLT/LYRICS tags.")
                             color: DesignTokens.textSecondary
                             font.family: DesignTokens.fontFamily
                             font.pixelSize: 12
@@ -1776,9 +1865,9 @@ Item {
                     clip: true
                     spacing: 5
                     reuseItems: true
-                    cacheBuffer: 240
+                    cacheBuffer: 120
                     boundsBehavior: Flickable.StopAtBounds
-                    model: root.controller.queueModel
+                    model: (immersiveView.visible && root.activeTab === "queue") ? root.controller.queueModel : null
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
                     delegate: Item {
@@ -1787,8 +1876,10 @@ Item {
                         required property string title
                         required property string artist
                         required property string coverHash
+                        required property string coverUrl
                         required property int durationMs
                         required property bool isCurrent
+                        required property bool isOnline
 
                         readonly property bool hovered: iqMa.containsMouse || iqRmMa.containsMouse
                         readonly property bool nextStartsHere: root.controller.currentIndex >= 0
@@ -1843,7 +1934,8 @@ Item {
                                     id: iqCover
                                     anchors.fill: parent
                                     source: iqRow.isCurrent ? root.controller.trackCoverUrl
-                                        : (iqRow.coverHash.length > 0 ? "image://cover/" + iqRow.coverHash + "?size=96" : "")
+                                        : (iqRow.coverHash.length > 0 ? "image://cover/" + iqRow.coverHash + "?size=96" : iqRow.coverUrl)
+                                    sourceSize: Qt.size(96, 96)
                                     fillMode: Image.PreserveAspectCrop
                                     asynchronous: true
                                     cache: false
@@ -1862,19 +1954,29 @@ Item {
                                     font.pixelSize: 13
                                     font.weight: iqRow.isCurrent ? Font.DemiBold : Font.Medium
                                 }
-                                Text {
+                                RowLayout {
                                     Layout.fillWidth: true
-                                    text: iqRow.artist.length > 0 ? iqRow.artist : qsTr("Unknown Artist")
-                                    elide: Text.ElideRight
-                                    color: DesignTokens.textTertiary
-                                    font.family: DesignTokens.fontFamily
-                                    font.pixelSize: 11
+                                    spacing: 4
+                                    IconGlyph {
+                                        visible: iqRow.isOnline
+                                        name: "cloud"
+                                        size: 10
+                                        color: DesignTokens.textTertiary
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: iqRow.artist.length > 0 ? iqRow.artist : qsTr("Unknown Artist")
+                                        elide: Text.ElideRight
+                                        color: DesignTokens.textTertiary
+                                        font.family: DesignTokens.fontFamily
+                                        font.pixelSize: 11
+                                    }
                                 }
                             }
 
                             NowPlayingBars {
                                 visible: iqRow.isCurrent && !iqRow.hovered
-                                playing: root.controller.isPlaying
+                                controller: root.controller
                                 size: 14
                             }
 
@@ -1935,7 +2037,7 @@ Item {
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
                             horizontalAlignment: Text.AlignHCenter
-                            text: qsTr("Queue is empty\nDrop audio files anywhere to start listening")
+                            text: qsTr("Queue is empty\nSearch online music or drop audio files anywhere")
                             color: DesignTokens.textTertiary
                             font.family: DesignTokens.fontFamily
                             font.pixelSize: 12

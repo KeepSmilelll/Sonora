@@ -28,7 +28,11 @@ public:
         FormatBadgeRole,
         CoverHashRole,
         FilePathRole,
-        IsCurrentRole
+        IsCurrentRole,
+        SourceRole,
+        RemoteIdRole,
+        CoverUrlRole,
+        IsOnlineRole
     };
 
     explicit QueueListModel(QObject* parent = nullptr) : QAbstractListModel(parent) {}
@@ -51,9 +55,11 @@ class PlaybackController : public QObject {
     Q_PROPERTY(bool isPlaying READ isPlaying NOTIFY stateChanged)
     Q_PROPERTY(bool isPaused READ isPaused NOTIFY stateChanged)
     Q_PROPERTY(bool isStopped READ isStopped NOTIFY stateChanged)
+    Q_PROPERTY(bool isBuffering READ isBuffering NOTIFY stateChanged)
     Q_PROPERTY(int playbackState READ playbackState NOTIFY stateChanged)
     Q_PROPERTY(qint64 positionMs READ positionMs NOTIFY positionChanged)
     Q_PROPERTY(qint64 durationMs READ durationMs NOTIFY durationChanged)
+    Q_PROPERTY(double bufferedRatio READ bufferedRatio NOTIFY bufferedRatioChanged)
 
     Q_PROPERTY(double volume READ volume WRITE setVolume NOTIFY volumeChanged)
     Q_PROPERTY(bool muted READ muted WRITE setMuted NOTIFY mutedChanged)
@@ -72,6 +78,10 @@ class PlaybackController : public QObject {
     Q_PROPERTY(QString trackCoverUrl READ trackCoverUrl NOTIFY currentTrackChanged)
     Q_PROPERTY(QString trackFilePath READ trackFilePath NOTIFY currentTrackChanged)
     Q_PROPERTY(bool trackIsFavorite READ trackIsFavorite NOTIFY currentTrackChanged)
+    Q_PROPERTY(bool trackIsOnline READ trackIsOnline NOTIFY currentTrackChanged)
+    Q_PROPERTY(QString trackSource READ trackSource NOTIFY currentTrackChanged)
+    Q_PROPERTY(QString trackRemoteId READ trackRemoteId NOTIFY currentTrackChanged)
+    Q_PROPERTY(QString trackKey READ trackKey NOTIFY currentTrackChanged)
     Q_PROPERTY(QVariantMap currentTrackMap READ currentTrackMap NOTIFY currentTrackChanged)
 
     Q_PROPERTY(QString outputDeviceName READ outputDeviceName NOTIFY outputStatusChanged)
@@ -100,9 +110,11 @@ public:
     bool isPlaying() const;
     bool isPaused() const;
     bool isStopped() const;
+    bool isBuffering() const;
     int playbackState() const;
     qint64 positionMs() const { return positionMs_; }
     qint64 durationMs() const { return durationMs_; }
+    double bufferedRatio() const { return bufferedRatio_; }
 
     double volume() const;
     void setVolume(double v);
@@ -113,7 +125,7 @@ public:
     int repeatMode() const;
     void setRepeatMode(int m);
 
-    bool hasTrack() const { return !currentTrack_.filePath.isEmpty(); }
+    bool hasTrack() const { return !currentTrack_.filePath.isEmpty() || currentTrack_.isOnline(); }
     int currentIndex() const { return currentIndex_; }
     int queueCount() const;
     qint64 trackId() const { return currentTrack_.id; }
@@ -125,8 +137,14 @@ public:
     QString trackCoverUrl() const;
     QString trackFilePath() const { return currentTrack_.filePath; }
     bool trackIsFavorite() const { return currentTrack_.isFavorite; }
+    bool trackIsOnline() const { return currentTrack_.isOnline(); }
+    QString trackSource() const { return currentTrack_.source; }
+    QString trackRemoteId() const { return currentTrack_.remoteId; }
+    QString trackKey() const { return currentTrack_.trackKey(); }
     QVariantMap currentTrackMap() const { return currentTrack_.toVariantMap(); }
     const TrackInfo& currentTrackInfo() const { return currentTrack_; }
+
+    void applyExternalCover(const QString& trackKey, const QString& coverHash, const QImage& coverImg);
 
     QString outputDeviceName() const { return outputStatus_.deviceName; }
     QString outputHardwareFormat() const { return outputStatus_.hardwareFormat; }
@@ -182,6 +200,7 @@ signals:
     void stateChanged();
     void positionChanged();
     void durationChanged();
+    void bufferedRatioChanged();
     void volumeChanged();
     void mutedChanged();
     void shuffleChanged();
@@ -209,6 +228,7 @@ private:
     int currentIndex_ = -1;
     qint64 positionMs_ = 0;
     qint64 durationMs_ = 0;
+    double bufferedRatio_ = 0.0;
     ActiveOutputStatus outputStatus_;
     QVariantList audioDevices_;
     QString memoryUsageText_;

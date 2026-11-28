@@ -13,6 +13,45 @@
 
 namespace virela {
 
+namespace {
+
+TrackInfo trackFromVariantMap(const QVariantMap& m) {
+    TrackInfo t;
+    const QVariant idVar = m.value(QStringLiteral("id"));
+    if (idVar.isValid()) {
+        bool ok = false;
+        const qint64 parsed = idVar.toLongLong(&ok);
+        if (ok) t.id = parsed;
+    }
+    t.filePath = m.value(QStringLiteral("filePath")).toString();
+    t.isCue = m.value(QStringLiteral("isCue")).toBool();
+    t.cuePath = m.value(QStringLiteral("cuePath")).toString();
+    t.startMs = m.value(QStringLiteral("startMs")).toLongLong();
+    t.endMs = m.value(QStringLiteral("endMs")).toLongLong();
+    t.title = m.value(QStringLiteral("title")).toString();
+    t.artist = m.value(QStringLiteral("artist")).toString();
+    t.album = m.value(QStringLiteral("album")).toString();
+    t.albumArtist = m.value(QStringLiteral("albumArtist")).toString();
+    t.trackNumber = m.value(QStringLiteral("trackNumber")).toInt();
+    t.discNumber = m.value(QStringLiteral("discNumber")).toInt();
+    t.year = m.value(QStringLiteral("year")).toInt();
+    t.genre = m.value(QStringLiteral("genre")).toString();
+    t.durationMs = m.value(QStringLiteral("durationMs")).toLongLong();
+    t.formatBadge = m.value(QStringLiteral("formatBadge")).toString();
+    t.coverHash = m.value(QStringLiteral("coverHash")).toString();
+    t.isFavorite = m.value(QStringLiteral("isFavorite")).toBool();
+    const QString src = m.value(QStringLiteral("source")).toString().trimmed();
+    t.source = src.isEmpty() ? QStringLiteral("local") : src;
+    t.remoteId = m.value(QStringLiteral("remoteId")).toString().trimmed();
+    t.remoteAlbumId = m.value(QStringLiteral("remoteAlbumId")).toString().trimmed();
+    t.remoteArtistId = m.value(QStringLiteral("remoteArtistId")).toString().trimmed();
+    t.coverUrl = m.value(QStringLiteral("coverUrl")).toString().trimmed();
+    t.audioQuality = m.value(QStringLiteral("audioQuality")).toString().trimmed();
+    return t;
+}
+
+} // namespace
+
 // ---- TrackListModel ----
 
 int TrackListModel::rowCount(const QModelIndex& parent) const {
@@ -40,6 +79,11 @@ QVariant TrackListModel::data(const QModelIndex& index, int role) const {
     case SampleRateRole:  return t.sampleRate;
     case BitDepthRole:    return t.bitDepth;
     case CodecRole:       return t.codec;
+    case SourceRole:      return t.source;
+    case RemoteIdRole:    return t.remoteId;
+    case CoverUrlRole:    return t.coverUrl;
+    case IsOnlineRole:    return t.isOnline();
+    case TrackKeyRole:    return t.trackKey();
     default:              return {};
     }
 }
@@ -62,7 +106,12 @@ QHash<int, QByteArray> TrackListModel::roleNames() const {
         {IsCueRole, "isCue"},
         {SampleRateRole, "sampleRate"},
         {BitDepthRole, "bitDepth"},
-        {CodecRole, "codec"}
+        {CodecRole, "codec"},
+        {SourceRole, "source"},
+        {RemoteIdRole, "remoteId"},
+        {CoverUrlRole, "coverUrl"},
+        {IsOnlineRole, "isOnline"},
+        {TrackKeyRole, "trackKey"}
     };
 }
 
@@ -76,6 +125,16 @@ void TrackListModel::setTracks(QVector<TrackInfo> tracks) {
 void TrackListModel::updateFavoriteForTrack(int64_t trackId, bool favorite) {
     for (int i = 0; i < tracks_.size(); ++i) {
         if (tracks_[i].id == trackId) {
+            tracks_[i].isFavorite = favorite;
+            emit dataChanged(index(i), index(i), {IsFavoriteRole});
+        }
+    }
+}
+
+void TrackListModel::updateFavoriteForKey(const QString& trackKey, bool favorite) {
+    if (trackKey.isEmpty()) return;
+    for (int i = 0; i < tracks_.size(); ++i) {
+        if (tracks_[i].trackKey() == trackKey) {
             tracks_[i].isFavorite = favorite;
             emit dataChanged(index(i), index(i), {IsFavoriteRole});
         }
@@ -187,16 +246,40 @@ LibraryController::LibraryController(LibraryDatabase* db,
     }
 
     if (player_ && player_->engine()) {
-        connect(player_->engine(), &PlaybackEngine::trackPlaybackStarted, this, [this](qint64 trackId) {
-            if (db_ && trackId >= 0) {
-                db_->recordPlayback(trackId);
-                if (currentSection_ == QStringLiteral("recent")) {
+        connect(player_->engine(), &PlaybackEngine::trackStartedPlayback, this, [this](const TrackInfo& track) {
+            if (!db_ || !db_->isOpen()) return;
+            bool recorded = false;
+            if (track.isOnline()) {
+                recorded = db_->recordOnlinePlayback(track);
+            } else if (track.id >= 0) {
+                recorded = db_->recordPlayback(track.id);
+            }
+            if (recorded) {
+                if (currentSection_ == QStringLiteral("recent") && tracksLoaded_) {
                     reloadTracksForCurrentSection();
+                } else {
+                    tracksDirty_ = true;
                 }
+                reloadHomeSummaries();
+                emit libraryUpdated();
+            }
+        });
+        connect(player_->engine(), &PlaybackEngine::currentTrackChanged, this, [this](const TrackInfo& track, int) {
+            if (track.isOnline() && db_ && db_->isOpen() && player_) {
+                player_->setCurrentTrackFavoriteState(db_->isOnlineTrackFavorite(track.source, track.remoteId));
             }
         });
         player_->setUrlExpander([this](const QList<QUrl>& urls) {
             return expandDroppedUrls(urls);
+        });
+    }
+
+    if (settings_) {
+        connect(settings_, &AppSettings::onlineSettingsChanged, this, [this]() {
+            downloadsDirty_ = true;
+            if (downloadsLoaded_) {
+                reloadDownloadedTracks();
+            }
         });
     }
 
@@ -247,16 +330,180 @@ void LibraryController::setSortAscending(bool asc) {
 void LibraryController::refreshAll() {
     if (!db_ || !db_->isOpen()) return;
     totalTrackCount_ = db_->totalTrackCount();
-    reloadTracksForCurrentSection();
-    albumsModel_.setAlbums(db_->queryAlbums(searchQuery_));
-    artistsModel_.setArtists(db_->queryArtists(searchQuery_));
+    tracksDirty_ = true;
+    albumsDirty_ = true;
+    artistsDirty_ = true;
+    downloadsDirty_ = true;
+
+    if (tracksLoaded_) {
+        reloadTracksForCurrentSection();
+        tracksDirty_ = false;
+    }
+    if (albumsLoaded_) {
+        albumsModel_.setAlbums(db_->queryAlbums(searchQuery_));
+        albumsDirty_ = false;
+    }
+    if (artistsLoaded_) {
+        artistsModel_.setArtists(db_->queryArtists(searchQuery_));
+        artistsDirty_ = false;
+    }
+    if (downloadsLoaded_) {
+        reloadDownloadedTracks();
+        downloadsDirty_ = false;
+    }
+
     reloadPlaylists();
-    reloadFolderBrowser();
+    reloadPinnedPlaylists();
+    if (currentSection_ == QStringLiteral("folders")) {
+        reloadFolderBrowser();
+    }
+    reloadHomeSummaries();
     emit libraryUpdated();
+}
+
+void LibraryController::ensureTracksLoaded() {
+    if (tracksLoaded_ && !tracksDirty_) return;
+    if (!db_ || !db_->isOpen()) return;
+    tracksLoaded_ = true;
+    tracksDirty_ = false;
+    reloadTracksForCurrentSection();
+}
+
+void LibraryController::ensureAlbumsLoaded() {
+    if (albumsLoaded_ && !albumsDirty_) return;
+    if (!db_ || !db_->isOpen()) return;
+    albumsLoaded_ = true;
+    albumsDirty_ = false;
+    albumsModel_.setAlbums(db_->queryAlbums(searchQuery_));
+}
+
+void LibraryController::ensureArtistsLoaded() {
+    if (artistsLoaded_ && !artistsDirty_) return;
+    if (!db_ || !db_->isOpen()) return;
+    artistsLoaded_ = true;
+    artistsDirty_ = false;
+    artistsModel_.setArtists(db_->queryArtists(searchQuery_));
+}
+
+void LibraryController::ensureDownloadsLoaded() {
+    if (downloadsLoaded_ && !downloadsDirty_) return;
+    downloadsLoaded_ = true;
+    downloadsDirty_ = false;
+    reloadDownloadedTracks();
+}
+
+QObject* LibraryController::tracksModel() {
+    ensureTracksLoaded();
+    return &tracksModel_;
+}
+
+QObject* LibraryController::albumsModel() {
+    ensureAlbumsLoaded();
+    return &albumsModel_;
+}
+
+QObject* LibraryController::artistsModel() {
+    ensureArtistsLoaded();
+    return &artistsModel_;
+}
+
+QObject* LibraryController::downloadedTracksModel() {
+    ensureDownloadsLoaded();
+    return &downloadedTracksModel_;
+}
+
+void LibraryController::releaseInactiveModels(const QString& activeSection) {
+    const bool keepTracks = (activeSection == QStringLiteral("local")
+                             || activeSection == QStringLiteral("favorites")
+                             || activeSection == QStringLiteral("recent")
+                             || activeSection == QStringLiteral("playlist"));
+    const bool keepDownloads = (activeSection == QStringLiteral("downloads"));
+
+    if (!keepTracks && tracksLoaded_) {
+        tracksModel_.setTracks({});
+        tracksLoaded_ = false;
+        tracksDirty_ = true;
+    }
+    if (activeSection != QStringLiteral("local")) {
+        if (albumsLoaded_) {
+            albumsModel_.setAlbums({});
+            albumsLoaded_ = false;
+            albumsDirty_ = true;
+        }
+        if (artistsLoaded_) {
+            artistsModel_.setArtists({});
+            artistsLoaded_ = false;
+            artistsDirty_ = true;
+        }
+        if (detailTracksModel_.count() > 0) {
+            detailTracksModel_.setTracks({});
+        }
+    }
+    if (!keepDownloads && downloadsLoaded_) {
+        downloadedTracksModel_.setTracks({});
+        downloadsLoaded_ = false;
+        downloadsDirty_ = true;
+    }
+}
+
+void LibraryController::reloadHomeSummaries() {
+    if (!db_ || !db_->isOpen()) {
+        recentTracksSummary_.clear();
+        recentAlbumsSummary_.clear();
+        hasRecentPlays_ = false;
+        return;
+    }
+
+    QVector<TrackInfo> recent = db_->queryRecentlyPlayed(8);
+    if (!recent.isEmpty()) {
+        hasRecentPlays_ = true;
+    } else {
+        hasRecentPlays_ = false;
+        recent = db_->queryRecentlyAdded(8);
+    }
+
+    QVariantList tracksOut;
+    tracksOut.reserve(recent.size());
+    for (const TrackInfo& t : recent) {
+        tracksOut.append(t.toVariantMap());
+    }
+    recentTracksSummary_ = std::move(tracksOut);
+
+    const QVector<AlbumSummary> albums = db_->queryAlbums({});
+    const int albumCount = std::min<int>(8, static_cast<int>(albums.size()));
+    QVariantList albumsOut;
+    albumsOut.reserve(albumCount);
+    for (int i = 0; i < albumCount; ++i) {
+        const AlbumSummary& a = albums[i];
+        albumsOut.append(QVariantMap{
+            {QStringLiteral("album"), a.album},
+            {QStringLiteral("artist"), a.albumArtist},
+            {QStringLiteral("year"), a.year},
+            {QStringLiteral("coverHash"), a.coverHash},
+            {QStringLiteral("trackCount"), a.trackCount},
+            {QStringLiteral("totalDurationMs"), QVariant::fromValue(a.totalDurationMs)}
+        });
+    }
+    recentAlbumsSummary_ = std::move(albumsOut);
+}
+
+void LibraryController::reloadDownloadedTracks() {
+    if (!db_ || !db_->isOpen()) {
+        downloadedTracksModel_.setTracks({});
+        return;
+    }
+    const QString dlDir = settings_ ? settings_->onlineDownloadDir().trimmed() : AppSettings::defaultDownloadDir();
+    if (dlDir.isEmpty()) {
+        downloadedTracksModel_.setTracks({});
+        return;
+    }
+    downloadedTracksModel_.setTracks(db_->queryFolderTracks(QDir::cleanPath(dlDir)));
 }
 
 void LibraryController::loadSection(const QString& section) {
     currentSection_ = section;
+    tracksLoaded_ = true;
+    tracksDirty_ = false;
     reloadTracksForCurrentSection();
     if (section == QStringLiteral("folders")) {
         reloadFolderBrowser();
@@ -370,6 +617,24 @@ void LibraryController::reloadPlaylists() {
     emit playlistsChanged();
 }
 
+void LibraryController::reloadPinnedPlaylists() {
+    pinnedPlaylists_.clear();
+    if (db_ && db_->isOpen()) {
+        for (const auto& p : db_->listPinnedOnlinePlaylists()) {
+            pinnedPlaylists_.append(QVariantMap{
+                {QStringLiteral("id"), QVariant::fromValue(p.id)},
+                {QStringLiteral("source"), p.source},
+                {QStringLiteral("remoteId"), p.remoteId},
+                {QStringLiteral("name"), p.name},
+                {QStringLiteral("creator"), p.creator},
+                {QStringLiteral("coverUrl"), p.coverUrl},
+                {QStringLiteral("trackCount"), p.trackCount}
+            });
+        }
+    }
+    emit pinnedPlaylistsChanged();
+}
+
 void LibraryController::playFromTracksModel(int index) {
     if (player_ && !tracksModel_.tracks().isEmpty()) {
         player_->playTracks(tracksModel_.tracks(), index);
@@ -392,19 +657,167 @@ void LibraryController::playNextFromTracksModel(int index) {
     player_->playNextTrack(tracksModel_.tracks()[index]);
 }
 
+void LibraryController::playFromDownloadedModel(int index) {
+    if (player_ && index >= 0 && index < downloadedTracksModel_.tracks().size()) {
+        player_->playTracks(downloadedTracksModel_.tracks(), index);
+    }
+}
+
+void LibraryController::playNextFromDownloadedModel(int index) {
+    if (!player_ || index < 0 || index >= downloadedTracksModel_.tracks().size()) return;
+    player_->playNextTrack(downloadedTracksModel_.tracks()[index]);
+}
+
+void LibraryController::enqueueFromDownloadedModel(int index) {
+    if (!player_ || index < 0 || index >= downloadedTracksModel_.tracks().size()) return;
+    player_->enqueueTracks({downloadedTracksModel_.tracks()[index]});
+}
+
+QVariantMap LibraryController::quickSearchLocal(const QString& query,
+                                                int maxTracks,
+                                                int maxAlbums,
+                                                int maxArtists) const {
+    QVariantMap out;
+    out.insert(QStringLiteral("totalTracks"), 0);
+    out.insert(QStringLiteral("tracks"), QVariantList{});
+    out.insert(QStringLiteral("albums"), QVariantList{});
+    out.insert(QStringLiteral("artists"), QVariantList{});
+
+    const QString q = query.trimmed();
+    if (!db_ || !db_->isOpen() || q.isEmpty()) {
+        return out;
+    }
+
+    const QVector<TrackInfo> matchedTracks = db_->queryTracks(q, QStringLiteral("title"), true);
+    const QVector<AlbumSummary> matchedAlbums = db_->queryAlbums(q);
+    const QVector<ArtistSummary> matchedArtists = db_->queryArtists(q);
+
+    QVariantList trackList;
+    const int trackCap = std::min<int>(std::max(0, maxTracks), static_cast<int>(matchedTracks.size()));
+    trackList.reserve(trackCap);
+    for (int i = 0; i < trackCap; ++i) {
+        const TrackInfo& t = matchedTracks[i];
+        trackList.append(QVariantMap{
+            {QStringLiteral("trackId"), QVariant::fromValue(t.id)},
+            {QStringLiteral("title"), t.displayTitle()},
+            {QStringLiteral("artist"), t.artist},
+            {QStringLiteral("album"), t.album},
+            {QStringLiteral("durationMs"), QVariant::fromValue(t.durationMs)},
+            {QStringLiteral("formatBadge"), t.formatBadge},
+            {QStringLiteral("coverHash"), t.coverHash}
+        });
+    }
+
+    QVariantList albumList;
+    const int albumCap = std::min<int>(std::max(0, maxAlbums), static_cast<int>(matchedAlbums.size()));
+    albumList.reserve(albumCap);
+    for (int i = 0; i < albumCap; ++i) {
+        const AlbumSummary& a = matchedAlbums[i];
+        albumList.append(QVariantMap{
+            {QStringLiteral("album"), a.album.isEmpty() ? QStringLiteral("Unknown Album") : a.album},
+            {QStringLiteral("albumArtist"), a.albumArtist.isEmpty() ? QStringLiteral("Unknown Artist") : a.albumArtist},
+            {QStringLiteral("year"), a.year},
+            {QStringLiteral("trackCount"), a.trackCount},
+            {QStringLiteral("coverHash"), a.coverHash},
+            {QStringLiteral("formatBadge"), a.formatBadge}
+        });
+    }
+
+    QVariantList artistList;
+    const int artistCap = std::min<int>(std::max(0, maxArtists), static_cast<int>(matchedArtists.size()));
+    artistList.reserve(artistCap);
+    for (int i = 0; i < artistCap; ++i) {
+        const ArtistSummary& ar = matchedArtists[i];
+        artistList.append(QVariantMap{
+            {QStringLiteral("artist"), ar.artist.isEmpty() ? QStringLiteral("Unknown Artist") : ar.artist},
+            {QStringLiteral("albumCount"), ar.albumCount},
+            {QStringLiteral("trackCount"), ar.trackCount},
+            {QStringLiteral("coverHash"), ar.coverHash}
+        });
+    }
+
+    out.insert(QStringLiteral("totalTracks"), static_cast<int>(matchedTracks.size()));
+    out.insert(QStringLiteral("tracks"), trackList);
+    out.insert(QStringLiteral("albums"), albumList);
+    out.insert(QStringLiteral("artists"), artistList);
+    return out;
+}
+
+void LibraryController::playTrackById(qint64 trackId) {
+    if (!db_ || !db_->isOpen() || !player_ || trackId < 0) return;
+    TrackInfo t;
+    if (db_->findTrackById(trackId, t)) {
+        player_->playTracks({t}, 0);
+    }
+}
+
 void LibraryController::toggleFavorite(qint64 trackId, bool currentFav) {
     if (!db_ || trackId < 0) return;
     const bool nextFav = !currentFav;
     if (db_->setFavorite(trackId, nextFav)) {
         tracksModel_.updateFavoriteForTrack(trackId, nextFav);
         detailTracksModel_.updateFavoriteForTrack(trackId, nextFav);
+        downloadedTracksModel_.updateFavoriteForTrack(trackId, nextFav);
         if (player_ && player_->trackId() == trackId) {
             player_->setCurrentTrackFavoriteState(nextFav);
         }
-        if (currentSection_ == QStringLiteral("favorites") && !nextFav) {
+        if (currentSection_ == QStringLiteral("favorites") && tracksLoaded_ && !nextFav) {
             reloadTracksForCurrentSection();
+        } else {
+            tracksDirty_ = true;
         }
+        emit favoritesChanged();
     }
+}
+
+bool LibraryController::toggleTrackFavorite(const QVariantMap& trackMap) {
+    if (!db_ || !db_->isOpen()) return false;
+    const TrackInfo track = trackFromVariantMap(trackMap);
+    const QString key = track.trackKey();
+
+    if (track.isOnline()) {
+        const bool curFav = db_->isOnlineTrackFavorite(track.source, track.remoteId);
+        const bool nextFav = !curFav;
+        int64_t persistedId = -1;
+        if (!db_->setOnlineTrackFavorite(track, nextFav, &persistedId)) {
+            return curFav;
+        }
+        tracksModel_.updateFavoriteForKey(key, nextFav);
+        detailTracksModel_.updateFavoriteForKey(key, nextFav);
+        downloadedTracksModel_.updateFavoriteForKey(key, nextFav);
+        if (player_ && player_->trackKey() == key) {
+            player_->setCurrentTrackFavoriteState(nextFav);
+        }
+        if (currentSection_ == QStringLiteral("favorites") && tracksLoaded_) {
+            reloadTracksForCurrentSection();
+        } else {
+            tracksDirty_ = true;
+        }
+        emit favoritesChanged();
+        if (player_) {
+            player_->showToast(nextFav ? tr("Added to Favorites") : tr("Removed from Favorites"));
+        }
+        return nextFav;
+    }
+
+    if (track.id >= 0) {
+        bool curFav = track.isFavorite;
+        TrackInfo existing;
+        if (db_->findTrackById(track.id, existing)) {
+            curFav = existing.isFavorite;
+        }
+        toggleFavorite(track.id, curFav);
+        if (player_) {
+            player_->showToast(!curFav ? tr("Added to Favorites") : tr("Removed from Favorites"));
+        }
+        return !curFav;
+    }
+    return false;
+}
+
+bool LibraryController::isTrackFavorite(const QString& source, const QString& remoteId) const {
+    return db_ && db_->isOpen() && !remoteId.trimmed().isEmpty()
+        && db_->isOnlineTrackFavorite(source, remoteId);
 }
 
 qint64 LibraryController::createPlaylist(const QString& name) {
@@ -432,11 +845,60 @@ void LibraryController::addTrackToPlaylist(qint64 playlistId, qint64 trackId) {
     if (!db_ || playlistId < 0 || trackId < 0) return;
     if (db_->addTrackToPlaylist(playlistId, trackId)) {
         reloadPlaylists();
-        if (activePlaylistId_ == playlistId && currentSection_ == QStringLiteral("playlist")) {
+        if (activePlaylistId_ == playlistId && currentSection_ == QStringLiteral("playlist") && tracksLoaded_) {
             reloadTracksForCurrentSection();
         }
         if (player_) player_->showToast(tr("Added to playlist"));
     }
+}
+
+void LibraryController::addTrackMapToPlaylist(qint64 playlistId, const QVariantMap& trackMap) {
+    if (!db_ || !db_->isOpen() || playlistId < 0) return;
+    TrackInfo track = trackFromVariantMap(trackMap);
+    int64_t tid = track.id;
+    if (track.isOnline()) {
+        tid = db_->upsertOnlineTrack(track);
+    } else if (tid < 0 && !track.filePath.isEmpty()) {
+        TrackInfo existing;
+        if (db_->findTrackByPath(track.filePath, existing)) {
+            tid = existing.id;
+        }
+    }
+    if (tid >= 0) {
+        addTrackToPlaylist(playlistId, tid);
+    }
+}
+
+bool LibraryController::pinOnlinePlaylist(const QString& source,
+                                          const QString& remoteId,
+                                          const QString& name,
+                                          const QString& creator,
+                                          const QString& coverUrl,
+                                          int trackCount) {
+    if (!db_ || !db_->isOpen()) return false;
+    PinnedOnlinePlaylist p;
+    p.source = source.trimmed().isEmpty() ? QStringLiteral("netease") : source.trimmed();
+    p.remoteId = remoteId.trimmed();
+    p.name = name.trimmed();
+    p.creator = creator.trimmed();
+    p.coverUrl = coverUrl.trimmed();
+    p.trackCount = trackCount;
+    if (!db_->pinOnlinePlaylist(p)) return false;
+    reloadPinnedPlaylists();
+    if (player_) player_->showToast(tr("Pinned playlist \"%1\"").arg(p.name));
+    return true;
+}
+
+bool LibraryController::unpinOnlinePlaylist(const QString& source, const QString& remoteId) {
+    if (!db_ || !db_->isOpen()) return false;
+    if (!db_->unpinOnlinePlaylist(source, remoteId)) return false;
+    reloadPinnedPlaylists();
+    if (player_) player_->showToast(tr("Unpinned playlist"));
+    return true;
+}
+
+bool LibraryController::isOnlinePlaylistPinned(const QString& source, const QString& remoteId) const {
+    return db_ && db_->isOpen() && db_->isOnlinePlaylistPinned(source, remoteId);
 }
 
 void LibraryController::removeTrackFromPlaylist(qint64 playlistId, int position) {
@@ -524,6 +986,62 @@ void LibraryController::rescanLibrary() {
     if (scanner_ && settings_ && !settings_->libraryFolders().isEmpty()) {
         scanner_->startScan(settings_->libraryFolders(), true);
     }
+}
+
+bool LibraryController::ingestLocalFile(const QString& audioFilePath) {
+    return ingestDownloadedTrack(audioFilePath, {}, {});
+}
+
+bool LibraryController::ingestDownloadedTrack(const QString& audioFilePath,
+                                              const QString& onlineSource,
+                                              const QString& onlineRemoteId) {
+    if (!db_ || !db_->isOpen()) return false;
+    const QFileInfo fi(audioFilePath);
+    if (!fi.exists() || !fi.isFile()) return false;
+    if (!PlaybackController::isSupportedAudioExtension(fi.suffix().toLower())) return false;
+
+    const QString absPath = fi.absoluteFilePath();
+    const QString absDir = QDir::cleanPath(fi.absolutePath());
+    if (settings_) {
+        bool covered = false;
+        for (const QString& folder : settings_->libraryFolders()) {
+            QString cleanFolder = QDir::cleanPath(folder);
+            if (absDir == cleanFolder || absDir.startsWith(cleanFolder + QLatin1Char('/'))) {
+                covered = true;
+                break;
+            }
+        }
+        if (!covered) {
+            settings_->addLibraryFolder(absDir);
+            if (scanner_) {
+                scanner_->setWatchedFolders(settings_->libraryFolders());
+            }
+        }
+    }
+
+    TrackInfo info;
+    if (!FFmpegDecoder::probeFile(absPath, info)) {
+        return false;
+    }
+    if (covers_) {
+        info.coverHash = covers_->indexCoverForAudioFile(absPath);
+    }
+
+    const QString rid = onlineRemoteId.trimmed();
+    const bool ok = !rid.isEmpty()
+        ? db_->upgradeOnlineTrackToLocal(onlineSource, rid, info)
+        : db_->upsertTrack(info);
+    if (!ok) {
+        return false;
+    }
+    refreshAll();
+    return true;
+}
+
+bool LibraryController::findUpgradedLocalTrack(const QString& remoteId, TrackInfo& out) const {
+    if (!db_ || !db_->isOpen() || remoteId.trimmed().isEmpty()) return false;
+    if (!db_->findLocalTrackByRemoteId(remoteId, out)) return false;
+    return !out.filePath.isEmpty() && QFileInfo::exists(out.filePath);
 }
 
 QVector<TrackInfo> LibraryController::expandDroppedUrls(const QList<QUrl>& urls) {

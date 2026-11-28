@@ -4,6 +4,7 @@
 #include "core/MemoryStats.h"
 #include "core/ThemeManager.h"
 #include "library/CoverArtProvider.h"
+#include "online/OnlineMusicService.h"
 #include "platform/PlatformBridge.h"
 
 #include <QBuffer>
@@ -36,6 +37,10 @@ QVariant QueueListModel::data(const QModelIndex& index, int role) const {
     case CoverHashRole:   return t.coverHash;
     case FilePathRole:    return t.filePath;
     case IsCurrentRole:   return index.row() == currentIndex_;
+    case SourceRole:      return t.source;
+    case RemoteIdRole:    return t.remoteId;
+    case CoverUrlRole:    return OnlineMusicService::sizedCoverUrl(t.coverUrl, 120);
+    case IsOnlineRole:    return t.isOnline();
     default:              return {};
     }
 }
@@ -50,7 +55,11 @@ QHash<int, QByteArray> QueueListModel::roleNames() const {
         {FormatBadgeRole, "formatBadge"},
         {CoverHashRole, "coverHash"},
         {FilePathRole, "filePath"},
-        {IsCurrentRole, "isCurrent"}
+        {IsCurrentRole, "isCurrent"},
+        {SourceRole, "source"},
+        {RemoteIdRole, "remoteId"},
+        {CoverUrlRole, "coverUrl"},
+        {IsOnlineRole, "isOnline"}
     };
 }
 
@@ -108,11 +117,23 @@ PlaybackController::PlaybackController(PlaybackEngine* engine,
         }
     });
 
+    connect(engine_, &PlaybackEngine::bufferedRatioChanged, this, [this](double ratio) {
+        const double clamped = std::clamp(ratio, 0.0, 1.0);
+        if (std::abs(bufferedRatio_ - clamped) < 1e-6) return;
+        bufferedRatio_ = clamped;
+        emit bufferedRatioChanged();
+    });
+
     connect(engine_, &PlaybackEngine::currentTrackChanged, this, [this](const TrackInfo& track, int idx) {
         currentTrack_ = track;
         currentIndex_ = idx;
         queueModel_.setCurrentIndex(idx);
         updateCoverAndAmbient(track);
+        const double nextBuf = std::clamp(engine_->bufferedRatio(), 0.0, 1.0);
+        if (std::abs(bufferedRatio_ - nextBuf) >= 1e-6) {
+            bufferedRatio_ = nextBuf;
+            emit bufferedRatioChanged();
+        }
         emit currentTrackChanged();
         if (platform_) {
             const QString tip = track.artist.isEmpty()
@@ -202,6 +223,10 @@ bool PlaybackController::isPaused() const {
 
 bool PlaybackController::isStopped() const {
     return !engine_ || engine_->state() == PlaybackState::Stopped;
+}
+
+bool PlaybackController::isBuffering() const {
+    return engine_ && engine_->state() == PlaybackState::Buffering;
 }
 
 int PlaybackController::playbackState() const {
@@ -507,13 +532,39 @@ void PlaybackController::updateCoverAndAmbient(const TrackInfo& track) {
         if (theme_) {
             theme_->updateFromCoverImage(coverImg);
         }
-    } else if (theme_) {
-        theme_->resetAmbientColors();
+    } else {
+        if (track.isOnline() && !track.coverUrl.isEmpty()) {
+            trackCoverUrl_ = track.coverUrl;
+        }
+        if (theme_) {
+            theme_->resetAmbientColors();
+        }
     }
 
     if (platform_) {
         platform_->updateMediaSessionTrack(track, coverImg);
     }
+}
+
+void PlaybackController::applyExternalCover(const QString& trackKey,
+                                            const QString& coverHash,
+                                            const QImage& coverImg) {
+    if (trackKey.isEmpty() || currentTrack_.trackKey() != trackKey) {
+        return;
+    }
+    if (!coverHash.isEmpty()) {
+        currentTrack_.coverHash = coverHash;
+        trackCoverUrl_ = QStringLiteral("image://cover/%1?size=360").arg(coverHash);
+    }
+    if (!coverImg.isNull()) {
+        if (theme_) {
+            theme_->updateFromCoverImage(coverImg);
+        }
+        if (platform_) {
+            platform_->updateMediaSessionTrack(currentTrack_, coverImg);
+        }
+    }
+    emit currentTrackChanged();
 }
 
 } // namespace virela

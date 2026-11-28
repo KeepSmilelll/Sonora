@@ -41,7 +41,7 @@ unsigned char clampByte(float v) noexcept {
 FluidAuroraItem::FluidAuroraItem(QQuickItem* parent)
     : QQuickItem(parent) {
     setFlag(ItemHasContents, true);
-    frameTimer_.setInterval(33); // ~30 fps gentle fluid drift when active & playing
+    frameTimer_.setInterval(66); // ~15 fps aligned to 2x 33ms UI tick when active & playing
     connect(&frameTimer_, &QTimer::timeout, this, &FluidAuroraItem::onFrameTick);
 }
 
@@ -113,7 +113,7 @@ void FluidAuroraItem::setPlaying(bool p) {
     if (playing_ == p) return;
     playing_ = p;
     if (!playing_) {
-        triggerSettle(30);
+        triggerSettle(16);
     }
     emit activeChanged();
     updateTimerState();
@@ -126,7 +126,7 @@ void FluidAuroraItem::setIntensity(qreal v) {
     if (!stateInitialized_) {
         curIntensity_ = static_cast<float>(clamped);
     } else {
-        triggerSettle(36);
+        triggerSettle(18);
     }
     emit styleChanged();
     updateTimerState();
@@ -140,7 +140,7 @@ void FluidAuroraItem::setImmersiveFactor(qreal v) {
     if (!stateInitialized_) {
         curImmersive_ = static_cast<float>(clamped);
     } else {
-        triggerSettle(36);
+        triggerSettle(18);
     }
     emit styleChanged();
     updateTimerState();
@@ -154,15 +154,27 @@ void FluidAuroraItem::setAudioEnergy(qreal v) {
     if (!stateInitialized_) {
         curEnergy_ = static_cast<float>(clamped);
     } else if (!playing_) {
-        triggerSettle(24);
+        triggerSettle(12);
     }
     emit styleChanged();
-    update();
+    if (!frameTimer_.isActive()) {
+        update();
+    }
 }
 
 void FluidAuroraItem::itemChange(ItemChange change, const ItemChangeData& value) {
     QQuickItem::itemChange(change, value);
-    if (change == ItemVisibleHasChanged || change == ItemSceneChange) {
+    if (change == ItemSceneChange) {
+        if (observedWindow_) {
+            disconnect(observedWindow_, nullptr, this, nullptr);
+        }
+        observedWindow_ = window();
+        if (observedWindow_) {
+            connect(observedWindow_, &QQuickWindow::visibleChanged, this, &FluidAuroraItem::updateTimerState);
+            connect(observedWindow_, &QQuickWindow::visibilityChanged, this, &FluidAuroraItem::updateTimerState);
+        }
+        updateTimerState();
+    } else if (change == ItemVisibleHasChanged) {
         updateTimerState();
     }
 }
@@ -173,7 +185,9 @@ void FluidAuroraItem::triggerSettle(int frames) {
 }
 
 void FluidAuroraItem::updateTimerState() {
-    const bool visibleNow = isVisible() && active_ && window() != nullptr && intensity_ > 0.01;
+    QQuickWindow* win = window();
+    const bool windowShown = win != nullptr && win->isVisible() && win->visibility() != QWindow::Minimized;
+    const bool visibleNow = isVisible() && active_ && windowShown && intensity_ > 0.01;
     const bool shouldTick = visibleNow && (playing_ || settleFrames_ > 0);
     if (shouldTick) {
         if (!frameTimer_.isActive()) frameTimer_.start();
@@ -193,17 +207,17 @@ void FluidAuroraItem::onFrameTick() {
         curEnergy_ = static_cast<float>(audioEnergy_);
         stateInitialized_ = true;
     } else {
-        constexpr float kLerp = 0.09f;
+        constexpr float kLerp = 0.17f;
         lerpFloat4(curP_, primaryColor_, kLerp);
         lerpFloat4(curS_, secondaryColor_, kLerp);
         lerpFloat4(curA_, accentColor_, kLerp);
         lerpFloat4(curB_, baseColor_, kLerp);
-        curIntensity_ += (static_cast<float>(intensity_) - curIntensity_) * 0.14f;
-        curImmersive_ += (static_cast<float>(immersiveFactor_) - curImmersive_) * 0.16f;
-        curEnergy_ += (static_cast<float>(audioEnergy_) - curEnergy_) * 0.16f;
+        curIntensity_ += (static_cast<float>(intensity_) - curIntensity_) * 0.26f;
+        curImmersive_ += (static_cast<float>(immersiveFactor_) - curImmersive_) * 0.28f;
+        curEnergy_ += (static_cast<float>(audioEnergy_) - curEnergy_) * 0.28f;
     }
 
-    phase_ += playing_ ? (0.015f + 0.022f * curEnergy_) : 0.004f;
+    phase_ += playing_ ? (0.030f + 0.044f * curEnergy_) : 0.008f;
     if (phase_ > 628.3185f) {
         phase_ -= 628.3185f;
     }

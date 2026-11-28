@@ -10,6 +10,7 @@ Item {
     required property var controller
     required property var lib
     property var heroLayer: null
+    property bool embedded: false
 
     property bool inDetail: false
     property string selectedAlbum: ""
@@ -19,6 +20,18 @@ Item {
 
     property int lastOpenedIndex: -1
     property var lastSourceRectInHero: null
+
+    function openAlbumByInfo(albumName, albumArtist, coverHash, year) {
+        root.lastOpenedIndex = -1
+        root.lastSourceRectInHero = null
+        root.selectedAlbum = albumName
+        root.selectedArtist = albumArtist
+        root.selectedCoverHash = coverHash || ""
+        root.selectedYear = year || 0
+        root.lib.openAlbum(albumName, albumArtist)
+        root.inDetail = true
+        detailRevealAnim.restart()
+    }
 
     ParallelAnimation {
         id: gridRevealAnim
@@ -39,7 +52,8 @@ Item {
         id: gridPane
         visible: !root.inDetail
         anchors.fill: parent
-        anchors.margins: 22
+        anchors.margins: root.embedded ? 0 : 22
+        anchors.topMargin: root.embedded ? 2 : 22
         transform: Translate { id: gridShift; x: 0 }
 
         ColumnLayout {
@@ -47,6 +61,7 @@ Item {
             spacing: 14
 
         RowLayout {
+            visible: !root.embedded
             Layout.fillWidth: true
             spacing: 12
 
@@ -279,8 +294,9 @@ Item {
                                     width: coverBox.width,
                                     height: coverBox.height
                                 }
-                                // Deterministic detailCoverBox destination: (36, 80, 148, 148) inside root
-                                const destPt = root.mapToItem(root.heroLayer, 36, 80)
+                                const mx = root.embedded ? 0 : 22
+                                const my = root.embedded ? 2 : 22
+                                const destPt = root.mapToItem(root.heroLayer, mx + 14, my + 30 + 14 + 14)
                                 root.heroLayer.startHero({
                                     tag: "album-cover",
                                     sourceItem: coverBox,
@@ -333,7 +349,8 @@ Item {
         id: detailPane
         visible: root.inDetail
         anchors.fill: parent
-        anchors.margins: 22
+        anchors.margins: root.embedded ? 0 : 22
+        anchors.topMargin: root.embedded ? 2 : 22
         spacing: 14
 
         RowLayout {
@@ -586,7 +603,7 @@ Item {
                         NowPlayingBars {
                             anchors.centerIn: parent
                             visible: dtRow.isCurrent
-                            playing: root.controller.isPlaying
+                            controller: root.controller
                             size: 13
                         }
 

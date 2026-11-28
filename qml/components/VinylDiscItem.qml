@@ -3,7 +3,7 @@ import QtQuick.Effects
 import Virela.UI
 
 // Sculpted spinning circular vinyl LP disc with concentric micro-grooves, circular cover label,
-// spindle hole, fixed diagonal specular sheen, and motor inertia via FrameAnimation.
+// spindle hole, fixed diagonal specular sheen, and motor inertia via 30 Hz Timer when exposed.
 Item {
     id: root
 
@@ -14,13 +14,25 @@ Item {
     property bool ownSpin: false
     property bool hovered: false
 
+    readonly property bool windowExposed: root.Window.window !== null
+        && root.Window.window.visible
+        && root.Window.window.visibility !== Window.Minimized
+
     property real _spinSpeed: 0.0
+    property double _lastSpinMs: 0.0
     readonly property real _targetSpeed: root.playing ? 24.0 : 0.0
 
-    FrameAnimation {
-        running: root.ownSpin && root.visible && (root.playing || root._spinSpeed > 0.15)
+    Timer {
+        interval: 33
+        repeat: true
+        running: root.ownSpin && root.visible && root.windowExposed && (root.playing || root._spinSpeed > 0.15)
+        onRunningChanged: if (running) root._lastSpinMs = Date.now()
         onTriggered: {
-            const dt = Math.min(0.05, frameTime)
+            const now = Date.now()
+            const dt = root._lastSpinMs > 0
+                ? Math.max(0.005, Math.min(0.08, (now - root._lastSpinMs) / 1000.0))
+                : 0.033
+            root._lastSpinMs = now
             const accel = root.playing ? 4.8 : 2.8
             root._spinSpeed += (root._targetSpeed - root._spinSpeed) * Math.min(1.0, dt * accel)
             if (!root.playing && root._spinSpeed < 0.15) {
@@ -99,13 +111,13 @@ Item {
                 color: DesignTokens.isDark
                     ? Qt.tint("#1b1d29", DesignTokens.accentSoft)
                     : Qt.tint("#e9ecf6", DesignTokens.accentSoft)
-                clip: true
 
                 Rectangle {
                     id: labelMask
                     anchors.fill: parent
                     radius: labelBox.radius
                     visible: false
+                    // MultiEffect needs the mask texture provider from the start.
                     layer.enabled: true
                     layer.smooth: true
                 }
@@ -114,6 +126,7 @@ Item {
                     id: coverImg
                     anchors.fill: parent
                     source: root.coverUrl
+                    sourceSize: Qt.size(root.compact ? 96 : 360, root.compact ? 96 : 360)
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
                     cache: false

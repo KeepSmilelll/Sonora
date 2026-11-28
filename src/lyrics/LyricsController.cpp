@@ -135,13 +135,35 @@ void LyricsController::loadForTrack(const QString& audioFilePath, const QString&
     userOffsetMs_ = 0;
     lastPositionMs_ = 0;
     effectivePositionMs_ = parsed_.offsetMs;
-    activeLineProgress_ = 0.0;
     endResetModel();
 
     emit lyricsChanged();
     emit activeLineIndexChanged();
     emit userOffsetMsChanged();
     emit positionProgressChanged();
+}
+
+void LyricsController::loadRawLyrics(const QString& primaryLyrics,
+                                     const QString& translationLyrics,
+                                     const QString& sourceLabel) {
+    beginResetModel();
+    parsed_ = LyricsParser::parseWithTranslation(primaryLyrics, translationLyrics, sourceLabel);
+    hasEnhancedWords_ = std::any_of(parsed_.lines.begin(), parsed_.lines.end(), [](const LyricLine& l) {
+        return !l.words.isEmpty();
+    });
+    activeLineIndex_ = -1;
+    userOffsetMs_ = 0;
+    effectivePositionMs_ = lastPositionMs_ + parsed_.offsetMs;
+    endResetModel();
+
+    emit lyricsChanged();
+    emit activeLineIndexChanged();
+    emit userOffsetMsChanged();
+    emit positionProgressChanged();
+
+    if (lastPositionMs_ > 0) {
+        updatePositionMs(lastPositionMs_);
+    }
 }
 
 void LyricsController::clear() {
@@ -152,7 +174,6 @@ void LyricsController::clear() {
     userOffsetMs_ = 0;
     lastPositionMs_ = 0;
     effectivePositionMs_ = 0;
-    activeLineProgress_ = 0.0;
     endResetModel();
 
     emit lyricsChanged();
@@ -192,41 +213,31 @@ void LyricsController::updatePositionMs(qint64 positionMs) {
         emit activeLineIndexChanged();
     }
 
-    if (activeLineIndex_ >= 0 && activeLineIndex_ < parsed_.lines.size()) {
-        const LyricLine& line = parsed_.lines[activeLineIndex_];
-        if (!line.words.isEmpty()) {
-            const int64_t nextLineTs = (activeLineIndex_ + 1 < parsed_.lines.size())
-                ? parsed_.lines[activeLineIndex_ + 1].timestampMs
-                : -1;
-            qreal weightedSum = 0.0;
-            qreal totalWeight = 0.0;
-            for (int i = 0; i < line.words.size(); ++i) {
-                const int64_t startMs = line.words[i].timestampMs;
-                const int64_t endMs = std::max<int64_t>(startMs + 60, resolveWordEndMs(line, i, nextLineTs));
-                const qreal w = std::max<qreal>(1.0, static_cast<qreal>(line.words[i].text.size()));
-                totalWeight += w;
+    emit positionProgressChanged();
+}
 
-                if (effectivePositionMs_ >= endMs) {
-                    weightedSum += w;
-                } else if (effectivePositionMs_ > startMs) {
-                    weightedSum += w * (static_cast<qreal>(effectivePositionMs_ - startMs)
-                                      / static_cast<qreal>(endMs - startMs));
-                }
-            }
-            activeLineProgress_ = totalWeight > 0.0
-                ? std::clamp<qreal>(weightedSum / totalWeight, 0.0, 1.0)
-                : 0.0;
-        } else {
-            const qint64 dur = lineDurationMs(activeLineIndex_);
-            activeLineProgress_ = std::clamp<qreal>(
-                static_cast<qreal>(effectivePositionMs_ - line.timestampMs) / static_cast<qreal>(dur),
-                0.0, 1.0);
-        }
-    } else {
-        activeLineProgress_ = 0.0;
+qreal LyricsController::activeLineProgress() const {
+    if (activeLineIndex_ < 0 || activeLineIndex_ >= parsed_.lines.size()) return 0.0;
+    const auto& line = parsed_.lines[activeLineIndex_];
+    if (line.words.isEmpty()) {
+        return std::clamp<qreal>(
+            static_cast<qreal>(effectivePositionMs_ - line.timestampMs) / lineDurationMs(activeLineIndex_),
+            0.0, 1.0);
     }
 
-    emit positionProgressChanged();
+    const int64_t nextLineTs = activeLineIndex_ + 1 < parsed_.lines.size()
+        ? parsed_.lines[activeLineIndex_ + 1].timestampMs : -1;
+    qreal weightedSum = 0.0;
+    qreal totalWeight = 0.0;
+    for (int i = 0; i < line.words.size(); ++i) {
+        const auto& word = line.words[i];
+        const int64_t endMs = std::max<int64_t>(word.timestampMs + 60, resolveWordEndMs(line, i, nextLineTs));
+        const qreal progress = static_cast<qreal>(effectivePositionMs_ - word.timestampMs) / (endMs - word.timestampMs);
+        const qreal weight = std::max<qreal>(1.0, word.text.size());
+        weightedSum += weight * std::clamp<qreal>(progress, 0.0, 1.0);
+        totalWeight += weight;
+    }
+    return weightedSum / totalWeight;
 }
 
 qint64 LyricsController::timestampForLine(int lineIndex) const {

@@ -161,6 +161,7 @@ Window {
                     id: miniCoverImg
                     anchors.fill: parent
                     source: miniWin.controller.trackCoverUrl
+                    sourceSize: Qt.size(96, 96)
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
                     cache: false

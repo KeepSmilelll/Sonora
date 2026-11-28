@@ -30,6 +30,13 @@ struct ParsedLyrics {
 class LyricsParser {
 public:
     static ParsedLyrics parse(const QString& rawText, const QString& sourceLabel = {});
+    static ParsedLyrics parseWithTranslation(const QString& primaryRaw,
+                                             const QString& translationRaw,
+                                             const QString& sourceLabel = {});
+    static QString composeSidecarLyrics(const QString& yrcRaw,
+                                        const QString& lrcRaw,
+                                        const QString& tlyricRaw,
+                                        QString* chosenExtOut = nullptr);
 
     // Locates a matching .lrc file alongside the given audio file and decodes it (UTF-8/UTF-16/GB18030)
     static QString findLrcFileForAudio(const QString& audioFilePath);

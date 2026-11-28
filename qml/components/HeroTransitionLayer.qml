@@ -182,7 +182,7 @@ Item {
                 anchors.fill: parent
                 radius: proxyCard.radius
                 visible: false
-                layer.enabled: true
+                layer.enabled: root.active && !root.vinylMode && heroImg.status === Image.Ready
                 layer.smooth: true
             }
 
@@ -190,6 +190,7 @@ Item {
                 id: heroImg
                 anchors.fill: parent
                 source: root.imageUrl
+                sourceSize: Qt.size(360, 360)
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
                 cache: false

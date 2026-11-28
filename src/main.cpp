@@ -8,9 +8,14 @@
 #include "library/LibraryScanner.h"
 #include "lyrics/LyricsController.h"
 #include "models/LibraryModels.h"
+#include "online/LocalBackendManager.h"
+#include "online/OnlineMusicController.h"
+#include "online/OnlineMusicService.h"
+#include "online/StreamCacheManager.h"
 #include "platform/PlatformBridge.h"
 #include "ui/EqCurveItem.h"
 #include "ui/FluidAuroraItem.h"
+#include "ui/IconImageProvider.h"
 #include "ui/SpectrumVisualizerItem.h"
 
 #include <QCommandLineOption>
@@ -28,6 +33,7 @@
 #include <QLocalSocket>
 #include <QLockFile>
 #include <QMouseEvent>
+#include <QPixmapCache>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
@@ -147,6 +153,8 @@ int main(int argc, char* argv[]) {
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
     QGuiApplication app(argc, argv);
+    // Strict 4 MB QPixmapCache ceiling (down from Qt's 10 MB default) to cap startup RSS
+    QPixmapCache::setCacheLimit(4096);
     app.setApplicationName(QStringLiteral("Virela"));
     app.setApplicationVersion(QStringLiteral("1.0.0"));
     app.setOrganizationName(QStringLiteral("Virela"));
@@ -215,7 +223,62 @@ int main(int argc, char* argv[]) {
         virela::CoverArtProvider::kDefaultRamCacheBytes);
 
     virela::LibraryScanner libraryScanner(&libraryDb, coverProvider);
+    virela::StreamCacheManager streamCache(
+        virela::AppSettings::defaultStreamCacheDir(),
+        static_cast<qint64>(settings.onlineCacheMaxMb()) * 1024LL * 1024LL);
+    virela::OnlineMusicService onlineService(&settings, &streamCache);
+    QObject::connect(&settings, &virela::AppSettings::onlineSettingsChanged, &streamCache, [&]() {
+        streamCache.setMaxCacheBytes(static_cast<qint64>(settings.onlineCacheMaxMb()) * 1024LL * 1024LL);
+    });
+
     virela::PlaybackEngine audioEngine;
+    audioEngine.setOnlineStreamResolver([&streamCache, &onlineService](
+        const virela::TrackInfo& track, const std::atomic<bool>* abortFlag) -> virela::ResolvedOnlinePlayback {
+        virela::ResolvedOnlinePlayback out;
+        const QString quality = onlineService.currentQuality();
+        const QString cacheKey = virela::StreamCacheManager::makeCacheKey(track.source, track.remoteId, quality);
+
+        const QString cachedFile = streamCache.findCompletedCacheFile(cacheKey);
+        const bool looksLikeStaleTrial = !cachedFile.isEmpty()
+            && track.durationMs >= 90000
+            && QFileInfo(cachedFile).size() < 850000;
+        if (!cachedFile.isEmpty() && !looksLikeStaleTrial) {
+            out.localCachePath = cachedFile;
+            out.formatBadge = virela::OnlineMusicService::formatBadgeForQuality(quality);
+            return out;
+        }
+
+        if (!looksLikeStaleTrial) {
+            if (auto existing = streamCache.activeSessionForKey(cacheKey)) {
+                out.session = std::move(existing);
+                out.formatBadge = virela::OnlineMusicService::formatBadgeForQuality(quality);
+                return out;
+            }
+        }
+
+        const virela::ResolvedStreamInfo resolved = onlineService.resolveStreamBlocking(track, quality, abortFlag);
+        if (abortFlag && abortFlag->load(std::memory_order_acquire)) {
+            return out;
+        }
+        if (!resolved.ok || resolved.streamUrl.isEmpty()) {
+            out.error = resolved.error.isEmpty()
+                ? QStringLiteral("Failed to resolve online stream URL.")
+                : resolved.error;
+            return out;
+        }
+
+        const QString effectiveKey = resolved.isTrial ? (cacheKey + QStringLiteral("_trial")) : cacheKey;
+        const QString streamCookie = (resolved.backendUsed == QStringLiteral("netease"))
+            ? onlineService.currentCookie()
+            : QString();
+        out.session = streamCache.openOrStartSession(
+            effectiveKey, QUrl(resolved.streamUrl), streamCookie, resolved.codecHint);
+        out.formatBadge = resolved.formatBadge;
+        out.codec = resolved.codecHint;
+        out.bitrateKbps = resolved.bitrateKbps;
+        return out;
+    });
+
     virela::ThemeManager themeManager(&settings);
     virela::PlaybackController playerController(&audioEngine, &settings, &themeManager, platform.get());
     playerController.setCoverLoader([coverProvider](const QString& hash) {
@@ -223,11 +286,24 @@ int main(int argc, char* argv[]) {
     });
     virela::LibraryController libraryController(&libraryDb, &libraryScanner, coverProvider, &settings, &playerController);
     virela::LyricsController lyricsController;
+    virela::LocalBackendManager localBackends(&settings);
+    virela::OnlineMusicController onlineController(
+        &onlineService, &streamCache, &settings,
+        &playerController, &libraryController, &lyricsController, coverProvider);
+    onlineController.setLocalBackendManager(&localBackends);
 
-    // Connect playback clock & track changes -> LyricsController
+    if (!parser.isSet(smokeOpt)) {
+        localBackends.setLifecycleActive(true);
+        localBackends.startConfiguredServices();
+    }
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, &localBackends, [&localBackends]() {
+        localBackends.stopAllServices();
+    });
+
+    // Connect playback clock & track changes -> OnlineMusicController / LyricsController
     QObject::connect(&audioEngine, &virela::PlaybackEngine::currentTrackChanged,
-                     &lyricsController, [&](const virela::TrackInfo& track, int) {
-        lyricsController.loadForTrack(track.filePath, track.embeddedLyrics);
+                     &onlineController, [&](const virela::TrackInfo& track, int) {
+        onlineController.onCurrentTrackChanged(track);
     });
     QObject::connect(&audioEngine, &virela::PlaybackEngine::positionChanged,
                      &lyricsController, [&](qint64 posMs) {
@@ -243,6 +319,7 @@ int main(int argc, char* argv[]) {
 
     QQmlApplicationEngine qmlEngine;
     qmlEngine.addImageProvider(QStringLiteral("cover"), coverProvider);
+    qmlEngine.addImageProvider(QStringLiteral("icon"), new virela::IconImageProvider());
     themeManager.setQmlEngine(&qmlEngine);
 
     qmlEngine.rootContext()->setContextProperty(QStringLiteral("appSettings"), &settings);
@@ -250,6 +327,7 @@ int main(int argc, char* argv[]) {
     qmlEngine.rootContext()->setContextProperty(QStringLiteral("player"), &playerController);
     qmlEngine.rootContext()->setContextProperty(QStringLiteral("library"), &libraryController);
     qmlEngine.rootContext()->setContextProperty(QStringLiteral("lyricsController"), &lyricsController);
+    qmlEngine.rootContext()->setContextProperty(QStringLiteral("onlineMusic"), &onlineController);
     qmlEngine.rootContext()->setContextProperty(QStringLiteral("platformBridge"), platform.get());
 
     QObject::connect(
@@ -287,6 +365,22 @@ int main(int argc, char* argv[]) {
             }, Qt::QueuedConnection);
 
             receiveLaunches(instanceServer, *mainWin, playerController);
+
+            // Reclaim transient QML/cover caches & trim Win32 working set when minimized to tray
+            QObject::connect(mainWin, &QWindow::visibleChanged, mainWin,
+                             [mainWin, coverProvider, &qmlEngine, &platform](bool isVisible) {
+                if (isVisible || platform->isQuitting()) return;
+                QTimer::singleShot(350, mainWin, [mainWin, coverProvider, &qmlEngine, &platform]() {
+                    if (!mainWin->isVisible() && !platform->isQuitting()) {
+                        coverProvider->clearRamCache();
+                        qmlEngine.trimComponentCache();
+                        qmlEngine.collectGarbage();
+#ifdef Q_OS_WIN
+                        SetProcessWorkingSetSize(GetCurrentProcess(), static_cast<SIZE_T>(-1), static_cast<SIZE_T>(-1));
+#endif
+                    }
+                });
+            });
         }
     }
 

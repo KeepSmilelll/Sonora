@@ -5,6 +5,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QSet>
 #include <algorithm>
 
 namespace virela {
@@ -77,6 +78,15 @@ TrackInfo readTrackRow(sqlite3_stmt* s) {
     t.playCount = sqlite3_column_int(s, 32);
     t.lastPlayedAt = sqlite3_column_int64(s, 33);
     t.addedAt = sqlite3_column_int64(s, 34);
+    t.source = colText(s, 35);
+    if (t.source.isEmpty()) t.source = QStringLiteral("local");
+    t.remoteId = colText(s, 36);
+    t.remoteAlbumId = colText(s, 37);
+    t.remoteArtistId = colText(s, 38);
+    t.coverUrl = colText(s, 39);
+    if (t.source != QStringLiteral("local")) {
+        t.filePath.clear();
+    }
     return t;
 }
 
@@ -87,7 +97,13 @@ constexpr const char* kSelectTrackColumns =
     "t.channels, t.codec, t.format_badge, t.is_dsd, t.rg_track_gain, t.rg_track_peak, "
     "t.rg_album_gain, t.rg_album_peak, t.has_rg_track, t.has_rg_album, "
     "t.cover_hash, t.file_size, t.file_mtime, t.is_favorite, t.play_count, "
-    "t.last_played_at, t.added_at ";
+    "t.last_played_at, t.added_at, t.source, t.remote_id, t.remote_album_id, "
+    "t.remote_artist_id, t.cover_url ";
+
+QString syntheticOnlineFilePath(const QString& source, const QString& remoteId) {
+    const QString src = source.trimmed().isEmpty() ? QStringLiteral("netease") : source.trimmed();
+    return QStringLiteral("online://%1/%2").arg(src, remoteId.trimmed());
+}
 
 } // namespace
 
@@ -182,6 +198,11 @@ bool LibraryDatabase::initSchema() {
             play_count INTEGER NOT NULL DEFAULT 0,
             last_played_at INTEGER NOT NULL DEFAULT 0,
             added_at INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'local',
+            remote_id TEXT NOT NULL DEFAULT '',
+            remote_album_id TEXT NOT NULL DEFAULT '',
+            remote_artist_id TEXT NOT NULL DEFAULT '',
+            cover_url TEXT NOT NULL DEFAULT '',
             UNIQUE(file_path, start_ms)
         );
 
@@ -226,9 +247,56 @@ bool LibraryDatabase::initSchema() {
             position INTEGER NOT NULL,
             PRIMARY KEY (playlist_id, position)
         );
+
+        CREATE TABLE IF NOT EXISTS pinned_online_playlists (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT NOT NULL DEFAULT 'netease',
+            remote_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            creator TEXT NOT NULL DEFAULT '',
+            cover_url TEXT NOT NULL DEFAULT '',
+            track_count INTEGER NOT NULL DEFAULT 0,
+            pinned_at INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(source, remote_id)
+        );
     )SQL";
 
-    return execSql(kSchemaSql);
+    if (!execSql(kSchemaSql)) {
+        return false;
+    }
+
+    // Idempotent column migration for existing databases created in Phases 1–2
+    QSet<QString> existingCols;
+    {
+        sqlite3_stmt* raw = nullptr;
+        if (sqlite3_prepare_v2(db_, "PRAGMA table_info(tracks);", -1, &raw, nullptr) == SQLITE_OK) {
+            StmtGuard s(raw);
+            while (sqlite3_step(s.get()) == SQLITE_ROW) {
+                existingCols.insert(colText(s.get(), 1));
+            }
+        }
+    }
+
+    struct ColMigration {
+        const char* name;
+        const char* alterSql;
+    };
+    static constexpr ColMigration kMigrations[] = {
+        {"source",           "ALTER TABLE tracks ADD COLUMN source TEXT NOT NULL DEFAULT 'local';"},
+        {"remote_id",        "ALTER TABLE tracks ADD COLUMN remote_id TEXT NOT NULL DEFAULT '';"},
+        {"remote_album_id",  "ALTER TABLE tracks ADD COLUMN remote_album_id TEXT NOT NULL DEFAULT '';"},
+        {"remote_artist_id", "ALTER TABLE tracks ADD COLUMN remote_artist_id TEXT NOT NULL DEFAULT '';"},
+        {"cover_url",        "ALTER TABLE tracks ADD COLUMN cover_url TEXT NOT NULL DEFAULT '';"}
+    };
+    for (const auto& m : kMigrations) {
+        if (!existingCols.contains(QString::fromLatin1(m.name))) {
+            if (!execSql(m.alterSql)) {
+                return false;
+            }
+        }
+    }
+
+    return execSql("CREATE INDEX IF NOT EXISTS idx_tracks_source_remote ON tracks(source, remote_id);");
 }
 
 bool LibraryDatabase::upsertTracksBatch(QVector<TrackInfo>& tracks) {
@@ -247,16 +315,20 @@ bool LibraryDatabase::upsertTracksBatch(QVector<TrackInfo>& tracks) {
             year, genre, duration_ms, sample_rate, bit_depth, bitrate_kbps,
             channels, codec, format_badge, is_dsd,
             rg_track_gain, rg_track_peak, rg_album_gain, rg_album_peak,
-            has_rg_track, has_rg_album, cover_hash, file_size, file_mtime, added_at
+            has_rg_track, has_rg_album, cover_hash, file_size, file_mtime, added_at,
+            source, remote_id
         ) VALUES (
             ?1, ?2, ?3, ?4, ?5,
             ?6, ?7, ?8, ?9, ?10, ?11,
             ?12, ?13, ?14, ?15, ?16, ?17,
             ?18, ?19, ?20, ?21,
             ?22, ?23, ?24, ?25,
-            ?26, ?27, ?28, ?29, ?30, ?31
+            ?26, ?27, ?28, ?29, ?30, ?31,
+            'local', ?32
         )
         ON CONFLICT(file_path, start_ms) DO UPDATE SET
+            source='local',
+            remote_id=CASE WHEN excluded.remote_id != '' THEN excluded.remote_id ELSE tracks.remote_id END,
             is_cue=excluded.is_cue,
             cue_path=excluded.cue_path,
             end_ms=excluded.end_ms,
@@ -332,6 +404,7 @@ bool LibraryDatabase::upsertTracksBatch(QVector<TrackInfo>& tracks) {
             sqlite3_bind_int64(stmt.get(), 29, t.fileSize);
             sqlite3_bind_int64(stmt.get(), 30, t.fileMtime);
             sqlite3_bind_int64(stmt.get(), 31, t.addedAt > 0 ? t.addedAt : now);
+            bindText(stmt.get(), 32, t.remoteId);
 
             if (sqlite3_step(stmt.get()) == SQLITE_ROW) {
                 t.id = sqlite3_column_int64(stmt.get(), 0);
@@ -369,9 +442,9 @@ bool LibraryDatabase::removeTracksOutsideFolders(const QStringList& watchedFolde
     std::lock_guard<std::mutex> lock(mutex_);
     if (!db_) return false;
     if (watchedFolders.isEmpty()) {
-        return execSql("DELETE FROM tracks;");
+        return execSql("DELETE FROM tracks WHERE source = 'local';");
     }
-    QString sql = QStringLiteral("DELETE FROM tracks WHERE NOT (");
+    QString sql = QStringLiteral("DELETE FROM tracks WHERE source = 'local' AND NOT (");
     for (int i = 0; i < watchedFolders.size(); ++i) {
         if (i > 0) sql += QStringLiteral(" OR ");
         sql += QStringLiteral("file_path LIKE ?%1").arg(i + 1);
@@ -398,7 +471,7 @@ QHash<QString, std::pair<int64_t, int64_t>> LibraryDatabase::loadFileFingerprint
     if (!db_) return out;
 
     sqlite3_stmt* raw = nullptr;
-    if (sqlite3_prepare_v2(db_, "SELECT DISTINCT file_path, file_mtime, file_size FROM tracks;", -1, &raw, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db_, "SELECT DISTINCT file_path, file_mtime, file_size FROM tracks WHERE source = 'local';", -1, &raw, nullptr) != SQLITE_OK) {
         return out;
     }
     StmtGuard s(raw);
@@ -412,7 +485,7 @@ int LibraryDatabase::totalTrackCount() const {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!db_) return 0;
     sqlite3_stmt* raw = nullptr;
-    if (sqlite3_prepare_v2(db_, "SELECT COUNT(*) FROM tracks;", -1, &raw, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db_, "SELECT COUNT(*) FROM tracks WHERE source = 'local';", -1, &raw, nullptr) != SQLITE_OK) {
         return 0;
     }
     StmtGuard s(raw);
@@ -447,12 +520,12 @@ QVector<TrackInfo> LibraryDatabase::queryTracks(const QString& searchQuery,
     bool useLike = false;
     if (q.size() >= 3) {
         useFts = true;
-        sql += QStringLiteral("FROM tracks t JOIN tracks_fts f ON t.id = f.rowid WHERE tracks_fts MATCH ?1");
+        sql += QStringLiteral("FROM tracks t JOIN tracks_fts f ON t.id = f.rowid WHERE tracks_fts MATCH ?1 AND t.source = 'local'");
     } else if (!q.isEmpty()) {
         useLike = true;
-        sql += QStringLiteral("FROM tracks t WHERE t.title LIKE ?1 OR t.artist LIKE ?1 OR t.album LIKE ?1");
+        sql += QStringLiteral("FROM tracks t WHERE t.source = 'local' AND (t.title LIKE ?1 OR t.artist LIKE ?1 OR t.album LIKE ?1)");
     } else {
-        sql += QStringLiteral("FROM tracks t");
+        sql += QStringLiteral("FROM tracks t WHERE t.source = 'local'");
     }
     sql += orderClause + QStringLiteral(";");
 
@@ -480,7 +553,7 @@ QVector<TrackInfo> LibraryDatabase::queryAlbumTracks(const QString& album, const
     if (!db_) return out;
 
     QString sql = QString::fromLatin1(kSelectTrackColumns)
-        + QStringLiteral("FROM tracks t WHERE t.album = ?1");
+        + QStringLiteral("FROM tracks t WHERE t.source = 'local' AND t.album = ?1");
     if (!albumArtist.isEmpty()) {
         sql += QStringLiteral(" AND t.album_artist = ?2");
     }
@@ -504,7 +577,7 @@ QVector<TrackInfo> LibraryDatabase::queryArtistTracks(const QString& artist) con
     if (!db_) return out;
 
     const QString sql = QString::fromLatin1(kSelectTrackColumns)
-        + QStringLiteral("FROM tracks t WHERE t.artist = ?1 OR t.album_artist = ?1 ORDER BY t.year DESC, t.album COLLATE NOCASE ASC, t.disc_number ASC, t.track_number ASC;");
+        + QStringLiteral("FROM tracks t WHERE t.source = 'local' AND (t.artist = ?1 OR t.album_artist = ?1) ORDER BY t.year DESC, t.album COLLATE NOCASE ASC, t.disc_number ASC, t.track_number ASC;");
     sqlite3_stmt* raw = nullptr;
     const QByteArray utf8 = sql.toUtf8();
     if (sqlite3_prepare_v2(db_, utf8.constData(), -1, &raw, nullptr) != SQLITE_OK) return out;
@@ -525,7 +598,7 @@ QVector<TrackInfo> LibraryDatabase::queryFolderTracks(const QString& folderPrefi
     if (!prefix.endsWith(QLatin1Char('/'))) prefix += QLatin1Char('/');
 
     const QString sql = QString::fromLatin1(kSelectTrackColumns)
-        + QStringLiteral("FROM tracks t WHERE t.file_path LIKE ?1 ORDER BY t.file_path ASC, t.start_ms ASC;");
+        + QStringLiteral("FROM tracks t WHERE t.source = 'local' AND t.file_path LIKE ?1 ORDER BY t.file_path ASC, t.start_ms ASC;");
     sqlite3_stmt* raw = nullptr;
     const QByteArray utf8 = sql.toUtf8();
     if (sqlite3_prepare_v2(db_, utf8.constData(), -1, &raw, nullptr) != SQLITE_OK) return out;
@@ -578,7 +651,7 @@ QVector<TrackInfo> LibraryDatabase::queryRecentlyAdded(int limit) const {
     if (!db_) return out;
 
     const QString sql = QString::fromLatin1(kSelectTrackColumns)
-        + QStringLiteral("FROM tracks t ORDER BY t.added_at DESC LIMIT ?1;");
+        + QStringLiteral("FROM tracks t WHERE t.source = 'local' ORDER BY t.added_at DESC LIMIT ?1;");
     sqlite3_stmt* raw = nullptr;
     const QByteArray utf8 = sql.toUtf8();
     if (sqlite3_prepare_v2(db_, utf8.constData(), -1, &raw, nullptr) != SQLITE_OK) return out;
@@ -607,6 +680,23 @@ bool LibraryDatabase::findTrackByPath(const QString& filePath, TrackInfo& out) c
     return false;
 }
 
+bool LibraryDatabase::findTrackById(int64_t trackId, TrackInfo& out) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!db_ || trackId < 0) return false;
+    const QString sql = QString::fromLatin1(kSelectTrackColumns)
+        + QStringLiteral("FROM tracks t WHERE t.id = ?1 LIMIT 1;");
+    sqlite3_stmt* raw = nullptr;
+    const QByteArray utf8 = sql.toUtf8();
+    if (sqlite3_prepare_v2(db_, utf8.constData(), -1, &raw, nullptr) != SQLITE_OK) return false;
+    StmtGuard s(raw);
+    sqlite3_bind_int64(s.get(), 1, trackId);
+    if (sqlite3_step(s.get()) == SQLITE_ROW) {
+        out = readTrackRow(s.get());
+        return true;
+    }
+    return false;
+}
+
 QVector<AlbumSummary> LibraryDatabase::queryAlbums(const QString& searchQuery) const {
     QVector<AlbumSummary> out;
     std::lock_guard<std::mutex> lock(mutex_);
@@ -615,9 +705,9 @@ QVector<AlbumSummary> LibraryDatabase::queryAlbums(const QString& searchQuery) c
     const QString q = searchQuery.trimmed();
     QString sql = QStringLiteral(
         "SELECT album, album_artist, MAX(year), COUNT(*), SUM(duration_ms), "
-        "MAX(cover_hash), MAX(format_badge) FROM tracks ");
+        "MAX(cover_hash), MAX(format_badge) FROM tracks WHERE source = 'local' ");
     if (!q.isEmpty()) {
-        sql += QStringLiteral("WHERE album LIKE ?1 OR album_artist LIKE ?1 OR artist LIKE ?1 ");
+        sql += QStringLiteral("AND (album LIKE ?1 OR album_artist LIKE ?1 OR artist LIKE ?1) ");
     }
     sql += QStringLiteral("GROUP BY album, album_artist ORDER BY album COLLATE NOCASE ASC;");
 
@@ -651,9 +741,9 @@ QVector<ArtistSummary> LibraryDatabase::queryArtists(const QString& searchQuery)
     const QString q = searchQuery.trimmed();
     QString sql = QStringLiteral(
         "SELECT COALESCE(NULLIF(album_artist, ''), artist) AS grp_artist, "
-        "COUNT(DISTINCT album), COUNT(*), MAX(cover_hash) FROM tracks ");
+        "COUNT(DISTINCT album), COUNT(*), MAX(cover_hash) FROM tracks WHERE source = 'local' ");
     if (!q.isEmpty()) {
-        sql += QStringLiteral("WHERE artist LIKE ?1 OR album_artist LIKE ?1 ");
+        sql += QStringLiteral("AND (artist LIKE ?1 OR album_artist LIKE ?1) ");
     }
     sql += QStringLiteral("GROUP BY grp_artist ORDER BY grp_artist COLLATE NOCASE ASC;");
 
@@ -700,6 +790,374 @@ bool LibraryDatabase::recordPlayback(int64_t trackId) {
     sqlite3_bind_int64(s.get(), 1, QDateTime::currentSecsSinceEpoch());
     sqlite3_bind_int64(s.get(), 2, trackId);
     return sqlite3_step(s.get()) == SQLITE_DONE;
+}
+
+int64_t LibraryDatabase::findUpgradedLocalIdLocked(const QString& remoteId) const {
+    if (!db_ || remoteId.trimmed().isEmpty()) return -1;
+    sqlite3_stmt* raw = nullptr;
+    if (sqlite3_prepare_v2(db_,
+                           "SELECT id FROM tracks WHERE source = 'local' AND remote_id = ?1 LIMIT 1;",
+                           -1, &raw, nullptr) != SQLITE_OK) {
+        return -1;
+    }
+    StmtGuard s(raw);
+    bindText(s.get(), 1, remoteId.trimmed());
+    if (sqlite3_step(s.get()) == SQLITE_ROW) {
+        return sqlite3_column_int64(s.get(), 0);
+    }
+    return -1;
+}
+
+int64_t LibraryDatabase::upsertOnlineTrackLocked(const TrackInfo& track) {
+    if (!db_ || track.remoteId.trimmed().isEmpty()) return -1;
+
+    const QString src = track.source.trimmed().isEmpty() ? QStringLiteral("netease") : track.source.trimmed();
+    const QString rid = track.remoteId.trimmed();
+
+    // If this remote track was already upgraded to a local lossless file, reuse that row id
+    const int64_t upgradedId = findUpgradedLocalIdLocked(rid);
+    if (upgradedId >= 0) {
+        return upgradedId;
+    }
+
+    static constexpr const char* kOnlineUpsertSql = R"SQL(
+        INSERT INTO tracks (
+            file_path, start_ms, title, artist, album, album_artist,
+            duration_ms, format_badge, source, remote_id,
+            remote_album_id, remote_artist_id, cover_url, added_at
+        ) VALUES (
+            ?1, 0, ?2, ?3, ?4, ?5,
+            ?6, ?7, ?8, ?9,
+            ?10, ?11, ?12, ?13
+        )
+        ON CONFLICT(file_path, start_ms) DO UPDATE SET
+            title=CASE WHEN excluded.title != '' THEN excluded.title ELSE tracks.title END,
+            artist=CASE WHEN excluded.artist != '' THEN excluded.artist ELSE tracks.artist END,
+            album=CASE WHEN excluded.album != '' THEN excluded.album ELSE tracks.album END,
+            album_artist=CASE WHEN excluded.album_artist != '' THEN excluded.album_artist ELSE tracks.album_artist END,
+            duration_ms=CASE WHEN excluded.duration_ms > 0 THEN excluded.duration_ms ELSE tracks.duration_ms END,
+            format_badge=CASE WHEN excluded.format_badge != '' THEN excluded.format_badge ELSE tracks.format_badge END,
+            source=excluded.source,
+            remote_id=excluded.remote_id,
+            remote_album_id=CASE WHEN excluded.remote_album_id != '' THEN excluded.remote_album_id ELSE tracks.remote_album_id END,
+            remote_artist_id=CASE WHEN excluded.remote_artist_id != '' THEN excluded.remote_artist_id ELSE tracks.remote_artist_id END,
+            cover_url=CASE WHEN excluded.cover_url != '' THEN excluded.cover_url ELSE tracks.cover_url END
+        RETURNING id;
+    )SQL";
+
+    sqlite3_stmt* raw = nullptr;
+    if (sqlite3_prepare_v2(db_, kOnlineUpsertSql, -1, &raw, nullptr) != SQLITE_OK) {
+        return -1;
+    }
+    StmtGuard s(raw);
+    const QString synPath = syntheticOnlineFilePath(src, rid);
+    const int64_t now = QDateTime::currentSecsSinceEpoch();
+    bindText(s.get(), 1, synPath);
+    bindText(s.get(), 2, track.title);
+    bindText(s.get(), 3, track.artist);
+    bindText(s.get(), 4, track.album);
+    bindText(s.get(), 5, track.albumArtist.isEmpty() ? track.artist : track.albumArtist);
+    sqlite3_bind_int64(s.get(), 6, track.durationMs);
+    bindText(s.get(), 7, track.formatBadge.isEmpty() ? QStringLiteral("Online") : track.formatBadge);
+    bindText(s.get(), 8, src);
+    bindText(s.get(), 9, rid);
+    bindText(s.get(), 10, track.remoteAlbumId);
+    bindText(s.get(), 11, track.remoteArtistId);
+    bindText(s.get(), 12, track.coverUrl);
+    sqlite3_bind_int64(s.get(), 13, now);
+
+    if (sqlite3_step(s.get()) == SQLITE_ROW) {
+        return sqlite3_column_int64(s.get(), 0);
+    }
+    return -1;
+}
+
+int64_t LibraryDatabase::upsertOnlineTrack(const TrackInfo& track) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return upsertOnlineTrackLocked(track);
+}
+
+bool LibraryDatabase::findOnlineTrack(const QString& source, const QString& remoteId, TrackInfo& out) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!db_ || remoteId.trimmed().isEmpty()) return false;
+    const QString src = source.trimmed().isEmpty() ? QStringLiteral("netease") : source.trimmed();
+    const QString sql = QString::fromLatin1(kSelectTrackColumns)
+        + QStringLiteral("FROM tracks t WHERE t.source = ?1 AND t.remote_id = ?2 LIMIT 1;");
+    sqlite3_stmt* raw = nullptr;
+    const QByteArray utf8 = sql.toUtf8();
+    if (sqlite3_prepare_v2(db_, utf8.constData(), -1, &raw, nullptr) != SQLITE_OK) return false;
+    StmtGuard s(raw);
+    bindText(s.get(), 1, src);
+    bindText(s.get(), 2, remoteId.trimmed());
+    if (sqlite3_step(s.get()) == SQLITE_ROW) {
+        out = readTrackRow(s.get());
+        return true;
+    }
+    return false;
+}
+
+bool LibraryDatabase::findLocalTrackByRemoteId(const QString& remoteId, TrackInfo& out) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!db_ || remoteId.trimmed().isEmpty()) return false;
+    const QString sql = QString::fromLatin1(kSelectTrackColumns)
+        + QStringLiteral("FROM tracks t WHERE t.source = 'local' AND t.remote_id = ?1 LIMIT 1;");
+    sqlite3_stmt* raw = nullptr;
+    const QByteArray utf8 = sql.toUtf8();
+    if (sqlite3_prepare_v2(db_, utf8.constData(), -1, &raw, nullptr) != SQLITE_OK) return false;
+    StmtGuard s(raw);
+    bindText(s.get(), 1, remoteId.trimmed());
+    if (sqlite3_step(s.get()) == SQLITE_ROW) {
+        out = readTrackRow(s.get());
+        return true;
+    }
+    return false;
+}
+
+bool LibraryDatabase::isOnlineTrackFavorite(const QString& source, const QString& remoteId) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!db_ || remoteId.trimmed().isEmpty()) return false;
+    const QString src = source.trimmed().isEmpty() ? QStringLiteral("netease") : source.trimmed();
+    sqlite3_stmt* raw = nullptr;
+    if (sqlite3_prepare_v2(
+            db_,
+            "SELECT is_favorite FROM tracks WHERE remote_id = ?1 AND (source = ?2 OR source = 'local') "
+            "ORDER BY is_favorite DESC LIMIT 1;",
+            -1, &raw, nullptr) != SQLITE_OK) {
+        return false;
+    }
+    StmtGuard s(raw);
+    bindText(s.get(), 1, remoteId.trimmed());
+    bindText(s.get(), 2, src);
+    if (sqlite3_step(s.get()) == SQLITE_ROW) {
+        return sqlite3_column_int(s.get(), 0) != 0;
+    }
+    return false;
+}
+
+bool LibraryDatabase::setOnlineTrackFavorite(const TrackInfo& track, bool favorite, int64_t* trackIdOut) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const int64_t id = upsertOnlineTrackLocked(track);
+    if (id < 0) return false;
+    if (trackIdOut) *trackIdOut = id;
+    sqlite3_stmt* raw = nullptr;
+    if (sqlite3_prepare_v2(db_, "UPDATE tracks SET is_favorite = ?1 WHERE id = ?2;", -1, &raw, nullptr) != SQLITE_OK) {
+        return false;
+    }
+    StmtGuard s(raw);
+    sqlite3_bind_int(s.get(), 1, favorite ? 1 : 0);
+    sqlite3_bind_int64(s.get(), 2, id);
+    return sqlite3_step(s.get()) == SQLITE_DONE;
+}
+
+bool LibraryDatabase::recordOnlinePlayback(const TrackInfo& track, int64_t* trackIdOut) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const int64_t id = upsertOnlineTrackLocked(track);
+    if (id < 0) return false;
+    if (trackIdOut) *trackIdOut = id;
+    sqlite3_stmt* raw = nullptr;
+    if (sqlite3_prepare_v2(
+            db_,
+            "UPDATE tracks SET play_count = play_count + 1, last_played_at = ?1 WHERE id = ?2;",
+            -1, &raw, nullptr) != SQLITE_OK) {
+        return false;
+    }
+    StmtGuard s(raw);
+    sqlite3_bind_int64(s.get(), 1, QDateTime::currentSecsSinceEpoch());
+    sqlite3_bind_int64(s.get(), 2, id);
+    return sqlite3_step(s.get()) == SQLITE_DONE;
+}
+
+bool LibraryDatabase::upgradeOnlineTrackToLocal(const QString& source, const QString& remoteId, TrackInfo& localTrack) {
+    const QString src = source.trimmed().isEmpty() ? QStringLiteral("netease") : source.trimmed();
+    const QString rid = remoteId.trimmed();
+    localTrack.source = QStringLiteral("local");
+    localTrack.remoteId = rid;
+
+    if (rid.isEmpty()) {
+        return upsertTrack(localTrack);
+    }
+
+    int64_t onlineId = -1;
+    bool mergedFav = localTrack.isFavorite;
+    int mergedPlays = localTrack.playCount;
+    int64_t mergedLastPlayed = localTrack.lastPlayedAt;
+
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!db_) return false;
+
+        sqlite3_stmt* rawFind = nullptr;
+        if (sqlite3_prepare_v2(
+                db_,
+                "SELECT id, is_favorite, play_count, last_played_at FROM tracks "
+                "WHERE source = ?1 AND remote_id = ?2 LIMIT 1;",
+                -1, &rawFind, nullptr) == SQLITE_OK) {
+            StmtGuard sFind(rawFind);
+            bindText(sFind.get(), 1, src);
+            bindText(sFind.get(), 2, rid);
+            if (sqlite3_step(sFind.get()) == SQLITE_ROW) {
+                onlineId = sqlite3_column_int64(sFind.get(), 0);
+                mergedFav = mergedFav || (sqlite3_column_int(sFind.get(), 1) != 0);
+                mergedPlays += sqlite3_column_int(sFind.get(), 2);
+                mergedLastPlayed = std::max<int64_t>(mergedLastPlayed, sqlite3_column_int64(sFind.get(), 3));
+            }
+        }
+
+        if (onlineId >= 0) {
+            if (!execSql("BEGIN IMMEDIATE;")) return false;
+
+            // If another row already exists for (file_path, start_ms), merge stats/playlists & delete it first
+            int64_t existingLocalId = -1;
+            {
+                sqlite3_stmt* rawDup = nullptr;
+                if (sqlite3_prepare_v2(
+                        db_,
+                        "SELECT id, is_favorite, play_count, last_played_at FROM tracks "
+                        "WHERE file_path = ?1 AND start_ms = ?2 AND id != ?3 LIMIT 1;",
+                        -1, &rawDup, nullptr) == SQLITE_OK) {
+                    StmtGuard sDup(rawDup);
+                    bindText(sDup.get(), 1, localTrack.filePath);
+                    sqlite3_bind_int64(sDup.get(), 2, localTrack.startMs);
+                    sqlite3_bind_int64(sDup.get(), 3, onlineId);
+                    if (sqlite3_step(sDup.get()) == SQLITE_ROW) {
+                        existingLocalId = sqlite3_column_int64(sDup.get(), 0);
+                        mergedFav = mergedFav || (sqlite3_column_int(sDup.get(), 1) != 0);
+                        mergedPlays += sqlite3_column_int(sDup.get(), 2);
+                        mergedLastPlayed = std::max<int64_t>(mergedLastPlayed, sqlite3_column_int64(sDup.get(), 3));
+                    }
+                }
+            }
+
+            if (existingLocalId >= 0) {
+                sqlite3_stmt* rawCleanPl = nullptr;
+                if (sqlite3_prepare_v2(
+                        db_,
+                        "DELETE FROM playlist_items WHERE track_id = ?1 "
+                        "AND playlist_id IN (SELECT playlist_id FROM playlist_items WHERE track_id = ?2);",
+                        -1, &rawCleanPl, nullptr) == SQLITE_OK) {
+                    StmtGuard sClean(rawCleanPl);
+                    sqlite3_bind_int64(sClean.get(), 1, existingLocalId);
+                    sqlite3_bind_int64(sClean.get(), 2, onlineId);
+                    sqlite3_step(sClean.get());
+                }
+
+                sqlite3_stmt* rawMovePl = nullptr;
+                if (sqlite3_prepare_v2(
+                        db_,
+                        "UPDATE playlist_items SET track_id = ?1 WHERE track_id = ?2;",
+                        -1, &rawMovePl, nullptr) == SQLITE_OK) {
+                    StmtGuard sMove(rawMovePl);
+                    sqlite3_bind_int64(sMove.get(), 1, onlineId);
+                    sqlite3_bind_int64(sMove.get(), 2, existingLocalId);
+                    sqlite3_step(sMove.get());
+                }
+
+                sqlite3_stmt* rawDelDup = nullptr;
+                if (sqlite3_prepare_v2(db_, "DELETE FROM tracks WHERE id = ?1;", -1, &rawDelDup, nullptr) == SQLITE_OK) {
+                    StmtGuard sDel(rawDelDup);
+                    sqlite3_bind_int64(sDel.get(), 1, existingLocalId);
+                    sqlite3_step(sDel.get());
+                }
+            }
+
+            static constexpr const char* kUpgradeSql = R"SQL(
+                UPDATE tracks SET
+                    source='local',
+                    file_path=?1,
+                    is_cue=?2,
+                    cue_path=?3,
+                    start_ms=?4,
+                    end_ms=?5,
+                    title=?6,
+                    artist=?7,
+                    album=?8,
+                    album_artist=?9,
+                    track_number=?10,
+                    disc_number=?11,
+                    year=?12,
+                    genre=?13,
+                    duration_ms=?14,
+                    sample_rate=?15,
+                    bit_depth=?16,
+                    bitrate_kbps=?17,
+                    channels=?18,
+                    codec=?19,
+                    format_badge=?20,
+                    is_dsd=?21,
+                    rg_track_gain=?22,
+                    rg_track_peak=?23,
+                    rg_album_gain=?24,
+                    rg_album_peak=?25,
+                    has_rg_track=?26,
+                    has_rg_album=?27,
+                    cover_hash=CASE WHEN ?28 != '' THEN ?28 ELSE cover_hash END,
+                    file_size=?29,
+                    file_mtime=?30,
+                    remote_id=?31,
+                    is_favorite=?32,
+                    play_count=?33,
+                    last_played_at=?34
+                WHERE id=?35;
+            )SQL";
+
+            sqlite3_stmt* rawUp = nullptr;
+            if (sqlite3_prepare_v2(db_, kUpgradeSql, -1, &rawUp, nullptr) != SQLITE_OK) {
+                execSql("ROLLBACK;");
+                return false;
+            }
+            bool updated = false;
+            {
+                StmtGuard sUp(rawUp);
+                bindText(sUp.get(), 1, localTrack.filePath);
+                sqlite3_bind_int(sUp.get(), 2, localTrack.isCue ? 1 : 0);
+                bindText(sUp.get(), 3, localTrack.cuePath);
+                sqlite3_bind_int64(sUp.get(), 4, localTrack.startMs);
+                sqlite3_bind_int64(sUp.get(), 5, localTrack.endMs);
+                bindText(sUp.get(), 6, localTrack.title);
+                bindText(sUp.get(), 7, localTrack.artist);
+                bindText(sUp.get(), 8, localTrack.album);
+                bindText(sUp.get(), 9, localTrack.albumArtist);
+                sqlite3_bind_int(sUp.get(), 10, localTrack.trackNumber);
+                sqlite3_bind_int(sUp.get(), 11, localTrack.discNumber);
+                sqlite3_bind_int(sUp.get(), 12, localTrack.year);
+                bindText(sUp.get(), 13, localTrack.genre);
+                sqlite3_bind_int64(sUp.get(), 14, localTrack.durationMs);
+                sqlite3_bind_int(sUp.get(), 15, localTrack.sampleRate);
+                sqlite3_bind_int(sUp.get(), 16, localTrack.bitDepth);
+                sqlite3_bind_int(sUp.get(), 17, localTrack.bitrateKbps);
+                sqlite3_bind_int(sUp.get(), 18, localTrack.channels);
+                bindText(sUp.get(), 19, localTrack.codec);
+                bindText(sUp.get(), 20, localTrack.formatBadge);
+                sqlite3_bind_int(sUp.get(), 21, localTrack.isDsd ? 1 : 0);
+                sqlite3_bind_double(sUp.get(), 22, localTrack.rgTrackGainDb);
+                sqlite3_bind_double(sUp.get(), 23, localTrack.rgTrackPeak);
+                sqlite3_bind_double(sUp.get(), 24, localTrack.rgAlbumGainDb);
+                sqlite3_bind_double(sUp.get(), 25, localTrack.rgAlbumPeak);
+                sqlite3_bind_int(sUp.get(), 26, localTrack.hasRgTrack ? 1 : 0);
+                sqlite3_bind_int(sUp.get(), 27, localTrack.hasRgAlbum ? 1 : 0);
+                bindText(sUp.get(), 28, localTrack.coverHash);
+                sqlite3_bind_int64(sUp.get(), 29, localTrack.fileSize);
+                sqlite3_bind_int64(sUp.get(), 30, localTrack.fileMtime);
+                bindText(sUp.get(), 31, rid);
+                sqlite3_bind_int(sUp.get(), 32, mergedFav ? 1 : 0);
+                sqlite3_bind_int(sUp.get(), 33, mergedPlays);
+                sqlite3_bind_int64(sUp.get(), 34, mergedLastPlayed);
+                sqlite3_bind_int64(sUp.get(), 35, onlineId);
+                updated = (sqlite3_step(sUp.get()) == SQLITE_DONE);
+            }
+            if (!updated || !execSql("COMMIT;")) {
+                execSql("ROLLBACK;");
+                return false;
+            }
+            localTrack.id = onlineId;
+            localTrack.isFavorite = mergedFav;
+            localTrack.playCount = mergedPlays;
+            localTrack.lastPlayedAt = mergedLastPlayed;
+            return true;
+        }
+    }
+
+    return upsertTrack(localTrack);
 }
 
 QVector<PlaylistSummary> LibraryDatabase::listPlaylists() const {
@@ -821,6 +1279,97 @@ QVector<TrackInfo> LibraryDatabase::queryPlaylistTracks(int64_t playlistId) cons
     sqlite3_bind_int64(s.get(), 1, playlistId);
     while (sqlite3_step(s.get()) == SQLITE_ROW) {
         out.push_back(readTrackRow(s.get()));
+    }
+    return out;
+}
+
+bool LibraryDatabase::pinOnlinePlaylist(const PinnedOnlinePlaylist& playlist) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!db_ || playlist.remoteId.trimmed().isEmpty() || playlist.name.trimmed().isEmpty()) {
+        return false;
+    }
+    const QString src = playlist.source.trimmed().isEmpty() ? QStringLiteral("netease") : playlist.source.trimmed();
+    static constexpr const char* kSql = R"SQL(
+        INSERT INTO pinned_online_playlists (source, remote_id, name, creator, cover_url, track_count, pinned_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        ON CONFLICT(source, remote_id) DO UPDATE SET
+            name=excluded.name,
+            creator=CASE WHEN excluded.creator != '' THEN excluded.creator ELSE pinned_online_playlists.creator END,
+            cover_url=CASE WHEN excluded.cover_url != '' THEN excluded.cover_url ELSE pinned_online_playlists.cover_url END,
+            track_count=CASE WHEN excluded.track_count > 0 THEN excluded.track_count ELSE pinned_online_playlists.track_count END;
+    )SQL";
+    sqlite3_stmt* raw = nullptr;
+    if (sqlite3_prepare_v2(db_, kSql, -1, &raw, nullptr) != SQLITE_OK) return false;
+    StmtGuard s(raw);
+    bindText(s.get(), 1, src);
+    bindText(s.get(), 2, playlist.remoteId.trimmed());
+    bindText(s.get(), 3, playlist.name.trimmed());
+    bindText(s.get(), 4, playlist.creator.trimmed());
+    bindText(s.get(), 5, playlist.coverUrl.trimmed());
+    sqlite3_bind_int(s.get(), 6, playlist.trackCount);
+    sqlite3_bind_int64(s.get(), 7, QDateTime::currentSecsSinceEpoch());
+    return sqlite3_step(s.get()) == SQLITE_DONE;
+}
+
+bool LibraryDatabase::unpinOnlinePlaylist(const QString& source, const QString& remoteId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!db_ || remoteId.trimmed().isEmpty()) return false;
+    const QString src = source.trimmed().isEmpty() ? QStringLiteral("netease") : source.trimmed();
+    sqlite3_stmt* raw = nullptr;
+    if (sqlite3_prepare_v2(
+            db_,
+            "DELETE FROM pinned_online_playlists WHERE source = ?1 AND remote_id = ?2;",
+            -1, &raw, nullptr) != SQLITE_OK) {
+        return false;
+    }
+    StmtGuard s(raw);
+    bindText(s.get(), 1, src);
+    bindText(s.get(), 2, remoteId.trimmed());
+    return sqlite3_step(s.get()) == SQLITE_DONE;
+}
+
+bool LibraryDatabase::isOnlinePlaylistPinned(const QString& source, const QString& remoteId) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!db_ || remoteId.trimmed().isEmpty()) return false;
+    const QString src = source.trimmed().isEmpty() ? QStringLiteral("netease") : source.trimmed();
+    sqlite3_stmt* raw = nullptr;
+    if (sqlite3_prepare_v2(
+            db_,
+            "SELECT 1 FROM pinned_online_playlists WHERE source = ?1 AND remote_id = ?2 LIMIT 1;",
+            -1, &raw, nullptr) != SQLITE_OK) {
+        return false;
+    }
+    StmtGuard s(raw);
+    bindText(s.get(), 1, src);
+    bindText(s.get(), 2, remoteId.trimmed());
+    return sqlite3_step(s.get()) == SQLITE_ROW;
+}
+
+QVector<PinnedOnlinePlaylist> LibraryDatabase::listPinnedOnlinePlaylists() const {
+    QVector<PinnedOnlinePlaylist> out;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!db_) return out;
+
+    sqlite3_stmt* raw = nullptr;
+    if (sqlite3_prepare_v2(
+            db_,
+            "SELECT id, source, remote_id, name, creator, cover_url, track_count, pinned_at "
+            "FROM pinned_online_playlists ORDER BY pinned_at DESC, id DESC;",
+            -1, &raw, nullptr) != SQLITE_OK) {
+        return out;
+    }
+    StmtGuard s(raw);
+    while (sqlite3_step(s.get()) == SQLITE_ROW) {
+        PinnedOnlinePlaylist p;
+        p.id = sqlite3_column_int64(s.get(), 0);
+        p.source = colText(s.get(), 1);
+        p.remoteId = colText(s.get(), 2);
+        p.name = colText(s.get(), 3);
+        p.creator = colText(s.get(), 4);
+        p.coverUrl = colText(s.get(), 5);
+        p.trackCount = sqlite3_column_int(s.get(), 6);
+        p.pinnedAt = sqlite3_column_int64(s.get(), 7);
+        out.push_back(std::move(p));
     }
     return out;
 }

@@ -21,11 +21,24 @@ QString AppSettings::defaultDataDir() {
     return base;
 }
 
+QString AppSettings::defaultDownloadDir() {
+    QString music = QStandardPaths::writableLocation(QStandardPaths::MusicLocation);
+    if (music.isEmpty()) {
+        return QDir::cleanPath(defaultDataDir() + QStringLiteral("/downloads"));
+    }
+    return QDir::cleanPath(music + QStringLiteral("/Virela Downloads"));
+}
+
+QString AppSettings::defaultStreamCacheDir() {
+    return QDir::cleanPath(defaultDataDir() + QStringLiteral("/cache/streams"));
+}
+
 AppSettings::AppSettings(const QString& overrideConfigPath, QObject* parent)
     : QObject(parent)
     , configPath_(overrideConfigPath.isEmpty()
                       ? (defaultDataDir() + QStringLiteral("/settings.json"))
-                      : overrideConfigPath) {
+                      : overrideConfigPath)
+    , onlineDownloadDir_(defaultDownloadDir()) {
     load();
 }
 
@@ -76,6 +89,34 @@ void AppSettings::load() {
             libraryFolders_.push_back(p);
         }
     }
+
+    auto stripTrailingSlash = [](QString u) {
+        u = u.trimmed();
+        while (u.endsWith(QLatin1Char('/'))) u.chop(1);
+        return u;
+    };
+    onlineNeteaseApiUrl_ = stripTrailingSlash(obj.value(QStringLiteral("onlineNeteaseApiUrl")).toString());
+    onlineMetingApiUrl_ = obj.value(QStringLiteral("onlineMetingApiUrl")).toString().trimmed();
+    const QString prio = obj.value(QStringLiteral("onlineDirectUrlPriority")).toString(onlineDirectUrlPriority_);
+    onlineDirectUrlPriority_ = (prio == QStringLiteral("meting")) ? QStringLiteral("meting") : QStringLiteral("netease");
+    onlineAutoFallback_ = obj.value(QStringLiteral("onlineAutoFallback")).toBool(onlineAutoFallback_);
+    onlineUnblockTrialFallback_ = obj.value(QStringLiteral("onlineUnblockTrialFallback")).toBool(onlineUnblockTrialFallback_);
+    const QString qual = obj.value(QStringLiteral("onlineAudioQuality")).toString(onlineAudioQuality_);
+    if (qual == QStringLiteral("standard") || qual == QStringLiteral("exhigh")
+        || qual == QStringLiteral("lossless") || qual == QStringLiteral("hires")) {
+        onlineAudioQuality_ = qual;
+    }
+    onlineCookie_ = obj.value(QStringLiteral("onlineCookie")).toString().trimmed();
+    onlineCacheMaxMb_ = std::clamp(obj.value(QStringLiteral("onlineCacheMaxMb")).toInt(onlineCacheMaxMb_), 128, 16384);
+    const QString dlDir = obj.value(QStringLiteral("onlineDownloadDir")).toString().trimmed();
+    if (!dlDir.isEmpty()) {
+        onlineDownloadDir_ = QDir::cleanPath(dlDir);
+    }
+    onlineAutoStartLocalServices_ = obj.value(QStringLiteral("onlineAutoStartLocalServices")).toBool(onlineAutoStartLocalServices_);
+    const QString netDir = obj.value(QStringLiteral("onlineNeteaseServiceDir")).toString().trimmed();
+    onlineNeteaseServiceDir_ = netDir.isEmpty() ? QString() : QDir::cleanPath(netDir);
+    const QString metDir = obj.value(QStringLiteral("onlineMetingServiceDir")).toString().trimmed();
+    onlineMetingServiceDir_ = metDir.isEmpty() ? QString() : QDir::cleanPath(metDir);
 }
 
 void AppSettings::save() const {
@@ -111,6 +152,19 @@ void AppSettings::save() const {
     QJsonArray folders;
     for (const QString& p : libraryFolders_) folders.append(p);
     obj.insert(QStringLiteral("libraryFolders"), folders);
+
+    obj.insert(QStringLiteral("onlineNeteaseApiUrl"), onlineNeteaseApiUrl_);
+    obj.insert(QStringLiteral("onlineMetingApiUrl"), onlineMetingApiUrl_);
+    obj.insert(QStringLiteral("onlineDirectUrlPriority"), onlineDirectUrlPriority_);
+    obj.insert(QStringLiteral("onlineAutoFallback"), onlineAutoFallback_);
+    obj.insert(QStringLiteral("onlineUnblockTrialFallback"), onlineUnblockTrialFallback_);
+    obj.insert(QStringLiteral("onlineAudioQuality"), onlineAudioQuality_);
+    obj.insert(QStringLiteral("onlineCookie"), onlineCookie_);
+    obj.insert(QStringLiteral("onlineCacheMaxMb"), onlineCacheMaxMb_);
+    obj.insert(QStringLiteral("onlineDownloadDir"), onlineDownloadDir_);
+    obj.insert(QStringLiteral("onlineAutoStartLocalServices"), onlineAutoStartLocalServices_);
+    obj.insert(QStringLiteral("onlineNeteaseServiceDir"), onlineNeteaseServiceDir_);
+    obj.insert(QStringLiteral("onlineMetingServiceDir"), onlineMetingServiceDir_);
 
     QFile f(configPath_);
     if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -317,6 +371,110 @@ void AppSettings::removeLibraryFolder(const QString& folder) {
         save();
         emit libraryFoldersChanged();
     }
+}
+
+void AppSettings::setOnlineNeteaseApiUrl(const QString& url) {
+    QString normalized = url.trimmed();
+    while (normalized.endsWith(QLatin1Char('/'))) {
+        normalized.chop(1);
+    }
+    if (onlineNeteaseApiUrl_ == normalized) return;
+    onlineNeteaseApiUrl_ = normalized;
+    save();
+    emit onlineSettingsChanged();
+}
+
+void AppSettings::setOnlineMetingApiUrl(const QString& url) {
+    const QString normalized = url.trimmed();
+    if (onlineMetingApiUrl_ == normalized) return;
+    onlineMetingApiUrl_ = normalized;
+    save();
+    emit onlineSettingsChanged();
+}
+
+void AppSettings::setOnlineDirectUrlPriority(const QString& priority) {
+    const QString valid = (priority == QStringLiteral("meting"))
+        ? QStringLiteral("meting")
+        : QStringLiteral("netease");
+    if (onlineDirectUrlPriority_ == valid) return;
+    onlineDirectUrlPriority_ = valid;
+    save();
+    emit onlineSettingsChanged();
+}
+
+void AppSettings::setOnlineAutoFallback(bool enabled) {
+    if (onlineAutoFallback_ == enabled) return;
+    onlineAutoFallback_ = enabled;
+    save();
+    emit onlineSettingsChanged();
+}
+
+void AppSettings::setOnlineUnblockTrialFallback(bool enabled) {
+    if (onlineUnblockTrialFallback_ == enabled) return;
+    onlineUnblockTrialFallback_ = enabled;
+    save();
+    emit onlineSettingsChanged();
+}
+
+void AppSettings::setOnlineAudioQuality(const QString& quality) {
+    QString valid = quality.trimmed().toLower();
+    if (valid != QStringLiteral("standard") && valid != QStringLiteral("exhigh")
+        && valid != QStringLiteral("lossless") && valid != QStringLiteral("hires")) {
+        valid = QStringLiteral("lossless");
+    }
+    if (onlineAudioQuality_ == valid) return;
+    onlineAudioQuality_ = valid;
+    save();
+    emit onlineSettingsChanged();
+}
+
+void AppSettings::setOnlineCookie(const QString& cookie) {
+    const QString trimmed = cookie.trimmed();
+    if (onlineCookie_ == trimmed) return;
+    onlineCookie_ = trimmed;
+    save();
+    emit onlineSettingsChanged();
+}
+
+void AppSettings::setOnlineCacheMaxMb(int maxMb) {
+    const int clamped = std::clamp(maxMb, 128, 16384);
+    if (onlineCacheMaxMb_ == clamped) return;
+    onlineCacheMaxMb_ = clamped;
+    save();
+    emit onlineSettingsChanged();
+}
+
+void AppSettings::setOnlineDownloadDir(const QString& dir) {
+    const QString cleaned = dir.trimmed().isEmpty() ? defaultDownloadDir() : QDir::cleanPath(dir.trimmed());
+    if (onlineDownloadDir_ == cleaned) return;
+    onlineDownloadDir_ = cleaned;
+    save();
+    emit onlineSettingsChanged();
+}
+
+void AppSettings::setOnlineAutoStartLocalServices(bool enabled) {
+    if (onlineAutoStartLocalServices_ == enabled) return;
+    onlineAutoStartLocalServices_ = enabled;
+    save();
+    emit onlineLocalServicesChanged();
+}
+
+void AppSettings::setOnlineNeteaseServiceDir(const QString& dir) {
+    const QString trimmed = dir.trimmed();
+    const QString cleaned = trimmed.isEmpty() ? QString() : QDir::cleanPath(trimmed);
+    if (onlineNeteaseServiceDir_ == cleaned) return;
+    onlineNeteaseServiceDir_ = cleaned;
+    save();
+    emit onlineLocalServicesChanged();
+}
+
+void AppSettings::setOnlineMetingServiceDir(const QString& dir) {
+    const QString trimmed = dir.trimmed();
+    const QString cleaned = trimmed.isEmpty() ? QString() : QDir::cleanPath(trimmed);
+    if (onlineMetingServiceDir_ == cleaned) return;
+    onlineMetingServiceDir_ = cleaned;
+    save();
+    emit onlineLocalServicesChanged();
 }
 
 } // namespace virela

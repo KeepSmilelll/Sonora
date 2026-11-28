@@ -75,8 +75,32 @@ struct TrackInfo {
 
     QString embeddedLyrics;
 
+    // Online music identity & display metadata (queue stores source + remoteId; stream URL is resolved on demand)
+    QString source = QStringLiteral("local"); // "local" | "netease" | "meting"
+    QString remoteId;
+    QString remoteAlbumId;
+    QString remoteArtistId;
+    QString coverUrl;
+    QString audioQuality;
+
+    bool isOnline() const noexcept {
+        return !source.isEmpty() && source != QStringLiteral("local") && !remoteId.isEmpty();
+    }
+
+    QString trackKey() const {
+        if (isOnline()) {
+            return source + QLatin1Char(':') + remoteId;
+        }
+        if (isCue) {
+            return filePath + QLatin1Char('#') + QString::number(startMs);
+        }
+        return filePath;
+    }
+
     QString displayTitle() const {
-        return title.isEmpty() ? filePath : title;
+        if (!title.isEmpty()) return title;
+        if (!filePath.isEmpty()) return filePath;
+        return remoteId;
     }
 
     QString techSummary() const {
@@ -135,7 +159,15 @@ struct TrackInfo {
             {QStringLiteral("hasRgAlbum"), hasRgAlbum},
             {QStringLiteral("coverHash"), coverHash},
             {QStringLiteral("isFavorite"), isFavorite},
-            {QStringLiteral("playCount"), playCount}
+            {QStringLiteral("playCount"), playCount},
+            {QStringLiteral("source"), source},
+            {QStringLiteral("remoteId"), remoteId},
+            {QStringLiteral("remoteAlbumId"), remoteAlbumId},
+            {QStringLiteral("remoteArtistId"), remoteArtistId},
+            {QStringLiteral("coverUrl"), coverUrl},
+            {QStringLiteral("audioQuality"), audioQuality},
+            {QStringLiteral("isOnline"), isOnline()},
+            {QStringLiteral("trackKey"), trackKey()}
         };
     }
 };

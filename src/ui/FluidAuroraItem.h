@@ -1,8 +1,11 @@
 #pragma once
 
 #include <QColor>
+#include <QPointer>
 #include <QQuickItem>
 #include <QTimer>
+
+class QQuickWindow;
 
 namespace virela {
 
@@ -66,7 +69,9 @@ protected:
 private:
     void updateTimerState();
     void onFrameTick();
-    void triggerSettle(int frames = 48);
+    void triggerSettle(int frames = 24);
+
+    QPointer<QQuickWindow> observedWindow_;
 
     QColor primaryColor_{42, 48, 72};
     QColor secondaryColor_{24, 28, 42};

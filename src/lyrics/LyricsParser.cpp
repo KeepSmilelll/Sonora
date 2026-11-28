@@ -353,6 +353,110 @@ ParsedLyrics LyricsParser::parse(const QString& rawText, const QString& sourceLa
     return result;
 }
 
+ParsedLyrics LyricsParser::parseWithTranslation(const QString& primaryRaw,
+                                                const QString& translationRaw,
+                                                const QString& sourceLabel) {
+    ParsedLyrics base = parse(primaryRaw, sourceLabel);
+    if (translationRaw.trimmed().isEmpty() || !base.synced || base.lines.isEmpty()) {
+        return base;
+    }
+
+    const ParsedLyrics trans = parse(translationRaw);
+    if (!trans.synced || trans.lines.isEmpty()) {
+        return base;
+    }
+
+    QVector<bool> used(trans.lines.size(), false);
+
+    // Pass 1: exact timestamp match (accounting for each stream's [offset:])
+    for (int i = 0; i < base.lines.size(); ++i) {
+        LyricLine& line = base.lines[i];
+        if (line.timestampMs < 0 || line.text.trimmed().isEmpty() || !line.translation.isEmpty()) {
+            continue;
+        }
+        const int64_t baseMs = line.timestampMs + base.offsetMs;
+        for (int j = 0; j < trans.lines.size(); ++j) {
+            if (used[j]) continue;
+            const LyricLine& tl = trans.lines[j];
+            if (tl.timestampMs < 0 || tl.text.trimmed().isEmpty()) continue;
+            if (tl.timestampMs + trans.offsetMs == baseMs) {
+                line.translation = tl.text;
+                used[j] = true;
+                break;
+            }
+        }
+    }
+
+    // Pass 2: nearest-neighbor alignment within +/- 250 ms tolerance
+    for (int i = 0; i < base.lines.size(); ++i) {
+        LyricLine& line = base.lines[i];
+        if (line.timestampMs < 0 || line.text.trimmed().isEmpty() || !line.translation.isEmpty()) {
+            continue;
+        }
+        const int64_t baseMs = line.timestampMs + base.offsetMs;
+        int bestIdx = -1;
+        int64_t bestDiff = 251;
+        for (int j = 0; j < trans.lines.size(); ++j) {
+            if (used[j]) continue;
+            const LyricLine& tl = trans.lines[j];
+            if (tl.timestampMs < 0 || tl.text.trimmed().isEmpty()) continue;
+            const int64_t diff = std::abs((tl.timestampMs + trans.offsetMs) - baseMs);
+            if (diff < bestDiff) {
+                bestDiff = diff;
+                bestIdx = j;
+            }
+        }
+        if (bestIdx >= 0) {
+            line.translation = trans.lines[bestIdx].text;
+            used[bestIdx] = true;
+        }
+    }
+
+    return base;
+}
+
+QString LyricsParser::composeSidecarLyrics(const QString& yrcRaw,
+                                           const QString& lrcRaw,
+                                           const QString& tlyricRaw,
+                                           QString* chosenExtOut) {
+    const QString trimmedYrc = yrcRaw.trimmed();
+    const QString trimmedLrc = lrcRaw.trimmed();
+    const QString trimmedTrans = tlyricRaw.trimmed();
+
+    QString primary;
+    if (!trimmedYrc.isEmpty()) {
+        if (chosenExtOut) *chosenExtOut = QStringLiteral("yrc");
+        primary = trimmedYrc;
+    } else if (!trimmedLrc.isEmpty()) {
+        if (chosenExtOut) *chosenExtOut = QStringLiteral("lrc");
+        primary = trimmedLrc;
+    } else {
+        if (chosenExtOut) chosenExtOut->clear();
+        return {};
+    }
+
+    if (trimmedTrans.isEmpty()) {
+        return primary + QLatin1Char('\n');
+    }
+
+    const ParsedLyrics merged = parseWithTranslation(primary, trimmedTrans);
+    QString out = primary + QLatin1Char('\n');
+    for (const LyricLine& line : merged.lines) {
+        if (line.timestampMs >= 0 && !line.translation.trimmed().isEmpty()) {
+            const int64_t ms = line.timestampMs;
+            const int64_t mins = ms / 60000;
+            const int64_t secs = (ms / 1000) % 60;
+            const int64_t frac = ms % 1000;
+            out += QStringLiteral("[%1:%2.%3]%4\n")
+                       .arg(mins, 2, 10, QLatin1Char('0'))
+                       .arg(secs, 2, 10, QLatin1Char('0'))
+                       .arg(frac, 3, 10, QLatin1Char('0'))
+                       .arg(line.translation);
+        }
+    }
+    return out;
+}
+
 QString LyricsParser::findLrcFileForAudio(const QString& audioFilePath) {
     return findSidecarForAudio(audioFilePath, QStringLiteral("lrc"));
 }

@@ -8,11 +8,13 @@ Item {
 
     required property var controller
     required property var lib
+    property bool embedded: false
     signal addFolderRequested()
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 22
+        anchors.margins: root.embedded ? 0 : 22
+        anchors.topMargin: root.embedded ? 4 : 22
         spacing: 14
 
         RowLayout {
@@ -27,6 +29,7 @@ Item {
             }
 
             Text {
+                visible: !root.embedded
                 text: qsTr("Folders")
                 color: DesignTokens.textPrimary
                 font.family: DesignTokens.fontFamily
@@ -177,7 +180,7 @@ Item {
                         NowPlayingBars {
                             anchors.centerIn: parent
                             visible: ftRow.isCurrent
-                            playing: root.controller.isPlaying
+                            controller: root.controller
                             size: 13
                         }
 

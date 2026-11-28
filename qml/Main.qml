@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import QtQuick.Dialogs
 import Virela.UI
 
 Window {
@@ -16,15 +15,19 @@ Window {
     flags: Qt.Window | Qt.FramelessWindowHint
     color: DesignTokens.nativeBackdropActive ? "transparent" : DesignTokens.windowBg
 
-    property string activeSection: "tracks"
+    property string activeSection: "online"
+    property string activeLocalTab: "tracks" // "tracks" | "albums" | "artists" | "folders"
     property int activePlaylistId: -1
     property string activePlaylistName: ""
+    property string unifiedSearchText: ""
+    property var quickLocalResults: ({ totalTracks: 0, tracks: [], albums: [], artists: [] })
+    property string detectedPlaylistId: ""
 
     // Continuous Spatial Stage state ("collapsed" | "rail" | "immersive")
-    property string stageMode: "rail"
-    property string previousNonImmersiveMode: "rail"
+    property string stageMode: "collapsed"
+    property string previousNonImmersiveMode: "collapsed"
     property string stageTab: "lyrics" // "lyrics" | "queue"
-    property bool railExpanded: false
+    property bool railExpanded: true
     property real stageRailWidth: DesignTokens.stageDefaultWidth
 
     readonly property bool narrowWindow: width < 980
@@ -51,6 +54,16 @@ Window {
     property bool trackInfoKeepAlive: false
     property var cachedTrackMap: ({})
     property bool createModalKeepAlive: false
+    property string pendingDialogName: ""
+
+    function openAppDialog(name) {
+        if (dialogsLoader.item) {
+            dialogsLoader.item.openByName(name)
+        } else {
+            pendingDialogName = name
+            dialogsLoader.active = true
+        }
+    }
 
     function syncTitleBarDragState() {
         const allowDrag = !win.createPlaylistOpen && win.inspectedTrackMap === null
@@ -58,13 +71,136 @@ Window {
     }
 
     function dismissSearchIfOutside(wx, wy) {
-        if (titleBar.searchFocused && !titleBar.isPointInsideSearch(wx, wy)) {
+        if (titleBar.searchFocused
+            && !titleBar.isPointInsideSearch(wx, wy)
+            && !(searchPopoverLoader.item && searchPopoverLoader.item.isPointInside(wx, wy))) {
             titleBar.clearSearchFocus()
         }
     }
 
     function dismissSearchFocus() {
         titleBar.clearSearchFocus()
+    }
+
+    function refreshQuickSuggestions() {
+        const q = win.unifiedSearchText.trim()
+        if (q.length === 0) {
+            win.quickLocalResults = ({ totalTracks: 0, tracks: [], albums: [], artists: [] })
+            win.detectedPlaylistId = ""
+            return
+        }
+        win.quickLocalResults = library.quickSearchLocal(q, 5, 3, 2)
+        win.detectedPlaylistId = onlineMusic.detectPlaylistLinkId(q)
+    }
+
+    Timer {
+        id: quickSearchDebounce
+        interval: 90
+        repeat: false
+        onTriggered: win.refreshQuickSuggestions()
+    }
+
+    function openSection(section) {
+        const changed = win.activeSection !== section || win.activePlaylistId !== -1
+        win.activeSection = section
+        win.activePlaylistId = -1
+        library.releaseInactiveModels(section)
+        memoryTrimTimer.restart()
+        if (section === "local") {
+            library.loadSection(win.activeLocalTab === "folders" ? "folders" : "tracks")
+        } else if (section === "favorites" || section === "recent") {
+            library.loadSection(section)
+        }
+        if (changed) win.triggerViewTransition()
+    }
+
+    function computeRailCoverGeometry(stageW) {
+        const art = Math.round(Math.max(124, Math.min(196, stageW - 76)))
+        return { x: Math.round((stageW - art) * 0.5), y: 64, width: art, height: art, radius: art * 0.5 }
+    }
+
+    function computeImmersiveCoverGeometry(stageW, stageH, vizEnabled) {
+        const bodyW = Math.max(300, stageW - 32)
+        const bodyH = Math.max(240, stageH - 72)
+        const leftColW = Math.round(Math.max(296, Math.min(430, bodyW * 0.39)))
+        const controlsH = 66 + 36 + (vizEnabled ? 44 : 0) + 46 + 52 + 42
+        const art = Math.round(Math.max(168, Math.min(308, leftColW - 56, bodyH - controlsH - 24)))
+        const groupH = art + controlsH
+        const groupY = Math.max(6, Math.round((bodyH - groupH) * 0.45))
+        return {
+            leftColW: leftColW,
+            groupH: groupH,
+            groupY: groupY,
+            x: 16 + Math.round((leftColW - art) * 0.5),
+            y: 56 + groupY,
+            width: art,
+            height: art,
+            radius: art * 0.5
+        }
+    }
+
+    Timer {
+        id: memoryTrimTimer
+        interval: 1200
+        repeat: false
+        onTriggered: {
+            themeManager.trimTransientMemory()
+            onlineMusic.trimMemory()
+        }
+    }
+
+    Connections {
+        target: onlineMusic
+        function onDetailChanged() {
+            if (!onlineMusic.inDetail) {
+                memoryTrimTimer.restart()
+            }
+        }
+    }
+
+    function openLocalTab(tab) {
+        const valid = (tab === "albums" || tab === "artists" || tab === "folders") ? tab : "tracks"
+        win.activeLocalTab = valid
+        win.openSection("local")
+        library.loadSection(valid === "folders" ? "folders" : "tracks")
+    }
+
+    function submitUnifiedSearch(text) {
+        const q = text.trim()
+        win.unifiedSearchText = q
+        if (q.length === 0) {
+            library.searchQuery = ""
+            onlineMusic.search("", onlineMusic.searchType)
+            win.quickLocalResults = ({ totalTracks: 0, tracks: [], albums: [], artists: [] })
+            win.detectedPlaylistId = ""
+            titleBar.clearSearchFocus()
+            return
+        }
+        const pid = onlineMusic.detectPlaylistLinkId(q)
+        if (pid.length > 0 && onlineMusic.backendConfigured) {
+            win.openSection("online")
+            onlineMusic.parseAndOpenPlaylist(q)
+            titleBar.clearSearchFocus()
+            return
+        }
+        if (onlineMusic.backendConfigured) {
+            win.openSection("online")
+            const category = appSettings.onlineNeteaseApiUrl.length > 0 ? onlineMusic.searchType : "songs"
+            onlineMusic.search(q, category)
+            win.quickLocalResults = library.quickSearchLocal(q, 5, 3, 2)
+            titleBar.clearSearchFocus()
+        } else {
+            library.searchQuery = q
+            win.openLocalTab("tracks")
+            titleBar.clearSearchFocus()
+        }
+    }
+
+    function openOnlineSettings() {
+        win.openSection("settings")
+        Qt.callLater(() => {
+            if (settingsLoader.item) settingsLoader.item.showOnlineSources()
+        })
     }
 
     function enterImmersive(sourceItemHint) {
@@ -245,16 +381,19 @@ Window {
     onMiniModeOpenChanged: {
         if (miniModeOpen) {
             if (!miniWindowObj) {
-                miniWindowObj = miniPlayerComponent.createObject(null, {
-                    controller: player,
-                    lyricsCtrl: lyricsController,
-                    settingsObj: appSettings
-                })
-                if (miniWindowObj) {
-                    miniWindowObj.restoreMainRequested.connect(win.restoreMainWindow)
-                    miniWindowObj.show()
-                    miniWindowObj.raise()
-                    miniWindowObj.requestActivate()
+                const miniComp = Qt.createComponent(Qt.resolvedUrl("windows/MiniPlayerWindow.qml"))
+                if (miniComp && miniComp.status === Component.Ready) {
+                    miniWindowObj = miniComp.createObject(null, {
+                        controller: player,
+                        lyricsCtrl: lyricsController,
+                        settingsObj: appSettings
+                    })
+                    if (miniWindowObj) {
+                        miniWindowObj.restoreMainRequested.connect(win.restoreMainWindow)
+                        miniWindowObj.show()
+                        miniWindowObj.raise()
+                        miniWindowObj.requestActivate()
+                    }
                 }
             }
         } else if (miniWindowObj) {
@@ -315,10 +454,17 @@ Window {
     }
 
     Shortcut {
+        sequence: "Ctrl+K"
+        enabled: win.stageMode !== "immersive" && !win.createPlaylistOpen && win.inspectedTrackMap === null
+        onActivated: titleBar.focusSearch()
+    }
+
+    Shortcut {
         sequence: "Escape"
-        enabled: win.createPlaylistOpen || win.inspectedTrackMap !== null || win.eqOpen || win.stageMode === "immersive"
+        enabled: titleBar.searchFocused || win.createPlaylistOpen || win.inspectedTrackMap !== null || win.eqOpen || win.stageMode === "immersive"
         onActivated: {
-            if (win.createPlaylistOpen) win.createPlaylistOpen = false
+            if (titleBar.searchFocused) titleBar.clearSearchFocus()
+            else if (win.createPlaylistOpen) win.createPlaylistOpen = false
             else if (win.inspectedTrackMap !== null) win.inspectedTrackMap = null
             else if (win.eqOpen) win.eqOpen = false
             else if (win.stageMode === "immersive") win.exitImmersive()
@@ -333,43 +479,35 @@ Window {
         audioEnergy: focusStage.liveBassEnergy
     }
 
-    // Native OS Dialogs (zero Qt6Widgets)
-    FileDialog {
-        id: openAudioDialog
-        title: qsTr("Open Audio Files")
-        fileMode: FileDialog.OpenFiles
-        nameFilters: [
-            qsTr("Audio & Playlists (*.flac *.wav *.aiff *.alac *.ape *.wv *.tta *.mp3 *.m4a *.aac *.ogg *.opus *.wma *.dsf *.dff *.cue *.m3u *.m3u8)"),
-            qsTr("All Files (*)")
-        ]
-        onAccepted: player.openUrls(selectedFiles, false)
-    }
-
-    FolderDialog {
-        id: addFolderDialog
-        title: qsTr("Select Music Folder")
-        onAccepted: library.addWatchedFolder(selectedFolder)
-    }
-
-    FileDialog {
-        id: importM3uDialog
-        title: qsTr("Import M3U / M3U8 Playlist")
-        fileMode: FileDialog.OpenFile
-        nameFilters: [qsTr("M3U Playlists (*.m3u *.m3u8)"), qsTr("All Files (*)")]
-        onAccepted: library.importM3uPlaylist(selectedFile)
-    }
-
-    FileDialog {
-        id: exportM3uDialog
-        title: qsTr("Export M3U8 Playlist")
-        fileMode: FileDialog.SaveFile
-        defaultSuffix: "m3u8"
-        nameFilters: [qsTr("M3U8 Playlist (*.m3u8)")]
-        onAccepted: {
-            if (win.exportPlaylistTargetId >= 0) {
-                library.exportM3uPlaylist(win.exportPlaylistTargetId, selectedFile)
+    // Lazy-loaded Native OS Dialogs container (QtQuick.Dialogs not loaded at startup)
+    Loader {
+        id: dialogsLoader
+        active: false
+        onActiveChanged: {
+            if (active) {
+                setSource(Qt.resolvedUrl("components/AppDialogs.qml"), {
+                    playerCtrl: player,
+                    libCtrl: library,
+                    onlineCtrl: onlineMusic,
+                    exportPlaylistTargetId: win.exportPlaylistTargetId
+                })
+            } else {
+                source = ""
             }
         }
+        onLoaded: {
+            if (win.pendingDialogName.length > 0) {
+                const dName = win.pendingDialogName
+                win.pendingDialogName = ""
+                item.openByName(dName)
+            }
+        }
+    }
+    Binding {
+        target: dialogsLoader.item
+        property: "exportPlaylistTargetId"
+        value: win.exportPlaylistTargetId
+        when: dialogsLoader.item !== null
     }
 
     // Top Spatial Frameless TitleBar (recedes smoothly when Immersive stage expands over it)
@@ -384,15 +522,29 @@ Window {
         visible: opacity > 0.01
         enabled: win.stageMode !== "immersive"
         compact: win.compactWindow
-        searchText: library.searchQuery
+        searchText: win.unifiedSearchText
         isMaximized: win.visibility === Window.Maximized
         railExpanded: win.railExpanded
         stageMode: win.effectiveStageMode
         immersiveFactor: win.animImmersive
         onToggleRailExpanded: win.railExpanded = !win.railExpanded
         onToggleStagePanel: win.toggleStagePanel()
-        onSearchEdited: (text) => library.searchQuery = text
-        onOpenFilesRequested: openAudioDialog.open()
+        onSearchEdited: (text) => {
+            win.unifiedSearchText = text
+            quickSearchDebounce.restart()
+        }
+        onSearchSubmitted: (text) => win.submitUnifiedSearch(text)
+        onSearchCleared: {
+            win.unifiedSearchText = ""
+            win.quickLocalResults = ({ totalTracks: 0, tracks: [], albums: [], artists: [] })
+            win.detectedPlaylistId = ""
+            if (win.activeSection === "local") {
+                library.searchQuery = ""
+            } else if (win.activeSection === "online") {
+                onlineMusic.search("", onlineMusic.searchType)
+            }
+        }
+        onOpenFilesRequested: win.openAppDialog("openAudio")
         onToggleTheme: themeManager.toggleDarkLight()
         onToggleMiniMode: win.toggleMiniMode()
         onMinimizeClicked: win.showMinimized()
@@ -438,27 +590,33 @@ Window {
                     expanded: win.railExpanded
                     activeSection: win.activeSection
                     customPlaylists: library.playlists
+                    pinnedPlaylists: library.pinnedPlaylists
                     activePlaylistId: win.activePlaylistId
+                    activePinnedRemoteId: onlineMusic.inDetail && onlineMusic.detailType === "playlist" ? onlineMusic.detailRemoteId : ""
+                    activeDownloadCount: onlineMusic.activeDownloadCount
                     onToggleExpandedRequested: win.railExpanded = !win.railExpanded
                     onSectionSelected: (section) => {
-                        const changed = (win.activeSection !== section || win.activePlaylistId !== -1)
-                        win.activeSection = section
-                        win.activePlaylistId = -1
-                        if (section === "tracks" || section === "favorites" || section === "recent" || section === "folders") {
-                            library.loadSection(section)
+                        if (section === "online") {
+                            onlineMusic.closeDetail()
                         }
-                        if (changed) win.triggerViewTransition()
+                        win.openSection(section)
                     }
                     onPlaylistSelected: (plId, plName) => {
                         const changed = (win.activeSection !== "playlist" || win.activePlaylistId !== plId)
                         win.activeSection = "playlist"
                         win.activePlaylistId = plId
                         win.activePlaylistName = plName
+                        library.releaseInactiveModels("playlist")
                         library.openPlaylist(plId)
                         if (changed) win.triggerViewTransition()
                     }
+                    onPinnedPlaylistSelected: (src, remoteId, name, creator, coverUrl) => {
+                        win.openSection("online")
+                        onlineMusic.openPlaylist(remoteId, name, creator, coverUrl)
+                    }
+                    onUnpinOnlinePlaylistRequested: (src, remoteId) => library.unpinOnlinePlaylist(src, remoteId)
                     onCreatePlaylistRequested: win.createPlaylistOpen = true
-                    onImportM3uRequested: importM3uDialog.open()
+                    onImportM3uRequested: win.openAppDialog("importM3u")
                 }
 
                 Rectangle {
@@ -466,8 +624,8 @@ Window {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     radius: DesignTokens.radiusXl
-                    readonly property bool tracksVisible: win.activeSection === "tracks"
-                        || win.activeSection === "favorites" || win.activeSection === "recent"
+                    readonly property bool tracksVisible: win.activeSection === "favorites"
+                        || win.activeSection === "recent"
                         || win.activeSection === "playlist"
                     color: tracksVisible ? "transparent" : DesignTokens.contentStageBg
                     border.width: tracksVisible ? 0 : 1
@@ -500,70 +658,215 @@ Window {
                         }
 
                         Loader {
+                            id: tracksLoader
                             anchors.fill: parent
-                            active: win.activeSection === "tracks"
-                                 || win.activeSection === "favorites"
+                            active: win.activeSection === "favorites"
                                  || win.activeSection === "recent"
                                  || win.activeSection === "playlist"
                             visible: active
-                            sourceComponent: TracksView {
-                                controller: player
-                                lib: library
-                                sectionKey: win.activeSection
-                                activePlaylistId: win.activePlaylistId
-                                sectionTitle: {
-                                    if (win.activeSection === "favorites") return qsTr("Favorites")
-                                    if (win.activeSection === "recent") return qsTr("Recently Played")
-                                    if (win.activeSection === "playlist") return win.activePlaylistName
-                                    return qsTr("All Tracks")
+                            function syncSource() {
+                                if (active) {
+                                    setSource(Qt.resolvedUrl("views/TracksView.qml"), {
+                                        controller: player,
+                                        lib: library,
+                                        sectionKey: win.activeSection,
+                                        activePlaylistId: win.activePlaylistId,
+                                        sectionTitle: win.activeSection === "favorites"
+                                            ? qsTr("Favorites")
+                                            : (win.activeSection === "recent"
+                                                ? qsTr("Recently Played")
+                                                : (win.activeSection === "playlist"
+                                                    ? win.activePlaylistName
+                                                    : qsTr("All Tracks")))
+                                    })
+                                } else {
+                                    source = ""
                                 }
-                                onAddFolderRequested: addFolderDialog.open()
-                                onOpenFilesRequested: openAudioDialog.open()
-                                onExportPlaylistRequested: (plId) => {
+                            }
+                            onActiveChanged: syncSource()
+                            Component.onCompleted: if (active) syncSource()
+                            Binding {
+                                target: tracksLoader.item
+                                property: "sectionKey"
+                                value: win.activeSection
+                                when: tracksLoader.item !== null
+                            }
+                            Binding {
+                                target: tracksLoader.item
+                                property: "activePlaylistId"
+                                value: win.activePlaylistId
+                                when: tracksLoader.item !== null
+                            }
+                            Binding {
+                                target: tracksLoader.item
+                                property: "sectionTitle"
+                                value: win.activeSection === "favorites"
+                                    ? qsTr("Favorites")
+                                    : (win.activeSection === "recent"
+                                        ? qsTr("Recently Played")
+                                        : (win.activeSection === "playlist"
+                                            ? win.activePlaylistName
+                                            : qsTr("All Tracks")))
+                                when: tracksLoader.item !== null
+                            }
+                            Connections {
+                                target: tracksLoader.item
+                                function onAddFolderRequested() { win.openAppDialog("addFolder") }
+                                function onOpenFilesRequested() { win.openAppDialog("openAudio") }
+                                function onExportPlaylistRequested(plId) {
                                     win.exportPlaylistTargetId = plId
-                                    exportM3uDialog.open()
+                                    win.openAppDialog("exportM3u")
                                 }
-                                onDeletePlaylistRequested: (plId) => {
+                                function onDeletePlaylistRequested(plId) {
                                     library.deletePlaylist(plId)
-                                    win.activeSection = "tracks"
-                                    win.activePlaylistId = -1
-                                    win.triggerViewTransition()
+                                    win.openSection("local")
                                 }
-                                onInspectTrack: (map) => win.inspectedTrackMap = map
+                                function onInspectTrack(map) { win.inspectedTrackMap = map }
                             }
                         }
 
                         Loader {
+                            id: localHubLoader
                             anchors.fill: parent
-                            active: win.activeSection === "artists"
+                            active: win.activeSection === "local"
                             visible: active
-                            sourceComponent: ArtistsView {
-                                controller: player
-                                lib: library
+                            function syncSource() {
+                                if (active) {
+                                    setSource(Qt.resolvedUrl("views/LocalMusicHubView.qml"), {
+                                        controller: player,
+                                        lib: library,
+                                        heroLayer: heroLayer,
+                                        activeTab: win.activeLocalTab
+                                    })
+                                } else {
+                                    source = ""
+                                }
+                            }
+                            onActiveChanged: syncSource()
+                            Component.onCompleted: if (active) syncSource()
+                            Binding {
+                                target: localHubLoader.item
+                                property: "activeTab"
+                                value: win.activeLocalTab
+                                when: localHubLoader.item !== null
+                            }
+                            Connections {
+                                target: localHubLoader.item
+                                function onTabChanged(tab) {
+                                    win.activeLocalTab = tab
+                                    library.loadSection(tab === "folders" ? "folders" : "tracks")
+                                }
+                                function onAddFolderRequested() { win.openAppDialog("addFolder") }
+                                function onOpenFilesRequested() { win.openAppDialog("openAudio") }
+                                function onInspectTrack(map) { win.inspectedTrackMap = map }
                             }
                         }
 
                         Loader {
+                            id: downloadsLoader
                             anchors.fill: parent
-                            active: win.activeSection === "folders"
+                            active: win.activeSection === "downloads"
                             visible: active
-                            sourceComponent: FoldersView {
-                                controller: player
-                                lib: library
-                                onAddFolderRequested: addFolderDialog.open()
+                            function syncSource() {
+                                if (active) {
+                                    setSource(Qt.resolvedUrl("views/DownloadsView.qml"), {
+                                        controller: player,
+                                        onlineCtrl: onlineMusic,
+                                        lib: library,
+                                        settingsObj: appSettings
+                                    })
+                                } else {
+                                    source = ""
+                                }
+                            }
+                            onActiveChanged: syncSource()
+                            Component.onCompleted: if (active) syncSource()
+                            Connections {
+                                target: downloadsLoader.item
+                                function onOpenSettingsRequested() { win.openOnlineSettings() }
+                                function onInspectTrack(map) { win.inspectedTrackMap = map }
                             }
                         }
 
                         Loader {
+                            id: onlineLoader
+                            anchors.fill: parent
+                            active: win.activeSection === "online"
+                            visible: active
+                            function syncSource() {
+                                if (active) {
+                                    setSource(Qt.resolvedUrl("views/OnlineMusicView.qml"), {
+                                        controller: player,
+                                        onlineCtrl: onlineMusic,
+                                        lib: library,
+                                        settingsObj: appSettings,
+                                        neteaseConfigured: appSettings.onlineNeteaseApiUrl.length > 0,
+                                        localMatchCount: win.quickLocalResults.totalTracks || 0
+                                    })
+                                } else {
+                                    source = ""
+                                }
+                            }
+                            onActiveChanged: syncSource()
+                            Component.onCompleted: if (active) syncSource()
+                            Binding {
+                                target: onlineLoader.item
+                                property: "neteaseConfigured"
+                                value: appSettings.onlineNeteaseApiUrl.length > 0
+                                when: onlineLoader.item !== null
+                            }
+                            Binding {
+                                target: onlineLoader.item
+                                property: "localMatchCount"
+                                value: win.quickLocalResults.totalTracks || 0
+                                when: onlineLoader.item !== null
+                            }
+                            Connections {
+                                target: onlineLoader.item
+                                function onOpenSettingsRequested() { win.openOnlineSettings() }
+                                function onOpenLocalRequested() { win.openLocalTab("tracks") }
+                                function onOpenRecentRequested() { win.openSection("recent") }
+                                function onOpenLocalAlbumRequested(albumName, artistName, coverHash) {
+                                    win.openLocalTab("albums")
+                                    Qt.callLater(() => {
+                                        if (localHubLoader.item) {
+                                            localHubLoader.item.openAlbumDetail(albumName, artistName, coverHash, 0)
+                                        }
+                                    })
+                                }
+                                function onViewLocalMatchesRequested(q) {
+                                    library.searchQuery = q
+                                    win.openLocalTab("tracks")
+                                }
+                                function onFocusSearchRequested() { titleBar.focusSearch() }
+                                function onInspectTrack(map) { win.inspectedTrackMap = map }
+                            }
+                        }
+
+                        Loader {
+                            id: settingsLoader
                             anchors.fill: parent
                             active: win.activeSection === "settings"
                             visible: active
-                            sourceComponent: SettingsView {
-                                controller: player
-                                lib: library
-                                settingsObj: appSettings
-                                themeObj: themeManager
-                                onAddFolderRequested: addFolderDialog.open()
+                            onActiveChanged: {
+                                if (active) {
+                                    setSource(Qt.resolvedUrl("views/SettingsView.qml"), {
+                                        controller: player,
+                                        lib: library,
+                                        settingsObj: appSettings,
+                                        themeObj: themeManager,
+                                        onlineCtrl: onlineMusic
+                                    })
+                                } else {
+                                    source = ""
+                                }
+                            }
+                            Connections {
+                                target: settingsLoader.item
+                                function onAddFolderRequested() { win.openAppDialog("addFolder") }
+                                function onSelectDownloadDirRequested() { win.openAppDialog("selectDownloadDir") }
+                                function onSelectNeteaseServiceDirRequested() { win.openAppDialog("selectNeteaseServiceDir") }
+                                function onSelectMetingServiceDirRequested() { win.openAppDialog("selectMetingServiceDir") }
                             }
                         }
                     }
@@ -572,8 +875,8 @@ Window {
         }
     }
 
-    // Continuous Focus Stage (Collapsed <-> Companion Rail <-> 100% Full-Window Immersive covering TitleBar & Dock)
-    FocusStage {
+    // Continuous Focus Stage (Collapsed <-> Companion Rail <-> 100% Full-Window Immersive, lazy-loaded when expanded)
+    Item {
         id: focusStage
         anchors.top: parent.top
         anchors.topMargin: Math.round((DesignTokens.titleBarHeight + 10) * (1.0 - win.animImmersive))
@@ -582,16 +885,23 @@ Window {
         anchors.right: parent.right
         anchors.rightMargin: Math.round(16 * (1.0 - win.animImmersive))
         z: win.animImmersive > 0.02 ? 32 : 15
-        controller: player
-        lyricsCtrl: lyricsController
-        settingsObj: appSettings
-        stageMode: win.effectiveStageMode
-        immersiveFactor: win.animImmersive
-        activeTab: win.stageTab
-        eqOpen: win.eqOpen
-        hideCoverForHero: heroLayer.isConcealing("nowplaying-cover")
-        onActiveTabChanged: {
-            if (win.stageTab !== activeTab) win.stageTab = activeTab
+
+        readonly property real liveBassEnergy: focusStageLoader.item ? focusStageLoader.item.liveBassEnergy : 0.0
+        readonly property real sharedVinylAngle: focusStageLoader.item ? focusStageLoader.item.sharedVinylAngle : 0.0
+        readonly property real immersiveLeftColWidth: focusStageLoader.item ? focusStageLoader.item.immersiveLeftColWidth : 340
+        readonly property bool draggingResize: focusStageLoader.item ? focusStageLoader.item.draggingResize : false
+
+        function currentCoverItem() {
+            return focusStageLoader.item ? focusStageLoader.item.currentCoverItem() : null
+        }
+        function currentCoverRadius() {
+            return focusStageLoader.item ? focusStageLoader.item.currentCoverRadius() : 23
+        }
+        function computeRailCoverGeometry(stageW) {
+            return win.computeRailCoverGeometry(stageW)
+        }
+        function computeImmersiveCoverGeometry(stageW, stageH, vizEnabled) {
+            return win.computeImmersiveCoverGeometry(stageW, stageH, vizEnabled)
         }
 
         width: {
@@ -612,23 +922,61 @@ Window {
             NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
         }
 
-        onRequestImmersiveToggle: win.toggleImmersive(focusStage.currentCoverItem())
-        onRequestCollapse: win.stageMode = "collapsed"
-        onToggleFavorite: win.toggleCurrentFavorite()
-        onToggleEq: win.eqOpen = !win.eqOpen
-        onOpenTrackInfo: win.inspectedTrackMap = player.currentTrackMap
-        onDragResize: (deltaX) => {
-            win.stageRailWidth = Math.max(120, Math.min(workspaceHost.width * 0.72, win.stageRailWidth - deltaX))
-        }
-        onDragResizeFinished: (currentW) => {
-            if (currentW < 210) {
-                win.stageMode = "collapsed"
-                win.stageRailWidth = DesignTokens.stageDefaultWidth
-            } else if (currentW > Math.min(540, workspaceHost.width * 0.56)) {
-                win.stageRailWidth = DesignTokens.stageDefaultWidth
-                win.enterImmersive(focusStage.currentCoverItem())
-            } else {
-                win.stageRailWidth = Math.max(DesignTokens.stageMinWidth, Math.min(DesignTokens.stageMaxWidth, currentW))
+        Loader {
+            id: focusStageLoader
+            anchors.fill: parent
+            active: win.effectiveStageMode !== "collapsed" || focusStage.width > 2
+            onActiveChanged: {
+                if (active) {
+                    setSource(Qt.resolvedUrl("views/FocusStage.qml"), {
+                        controller: player,
+                        lyricsCtrl: lyricsController,
+                        settingsObj: appSettings,
+                        stageMode: win.effectiveStageMode,
+                        immersiveFactor: win.animImmersive,
+                        activeTab: win.stageTab,
+                        eqOpen: win.eqOpen,
+                        currentDownloadStatus: onlineMusic.currentTrackDownloadStatus,
+                        hideCoverForHero: heroLayer.isConcealing("nowplaying-cover")
+                    })
+                } else {
+                    source = ""
+                    memoryTrimTimer.restart()
+                }
+            }
+            Binding { target: focusStageLoader.item; property: "stageMode"; value: win.effectiveStageMode; when: focusStageLoader.item !== null }
+            Binding { target: focusStageLoader.item; property: "immersiveFactor"; value: win.animImmersive; when: focusStageLoader.item !== null }
+            Binding { target: focusStageLoader.item; property: "activeTab"; value: win.stageTab; when: focusStageLoader.item !== null }
+            Binding { target: focusStageLoader.item; property: "eqOpen"; value: win.eqOpen; when: focusStageLoader.item !== null }
+            Binding { target: focusStageLoader.item; property: "currentDownloadStatus"; value: onlineMusic.currentTrackDownloadStatus; when: focusStageLoader.item !== null }
+            Binding { target: focusStageLoader.item; property: "hideCoverForHero"; value: heroLayer.isConcealing("nowplaying-cover"); when: focusStageLoader.item !== null }
+            Connections {
+                target: focusStageLoader.item
+                function onActiveTabChanged() {
+                    if (focusStageLoader.item && win.stageTab !== focusStageLoader.item.activeTab) {
+                        win.stageTab = focusStageLoader.item.activeTab
+                    }
+                }
+                function onRequestImmersiveToggle() { win.toggleImmersive(focusStage.currentCoverItem()) }
+                function onRequestCollapse() { win.stageMode = "collapsed" }
+                function onToggleFavorite() { win.toggleCurrentFavorite() }
+                function onToggleEq() { win.eqOpen = !win.eqOpen }
+                function onOpenTrackInfo() { win.inspectedTrackMap = player.currentTrackMap }
+                function onDownloadCurrentRequested() { onlineMusic.downloadCurrentTrack() }
+                function onDragResize(deltaX) {
+                    win.stageRailWidth = Math.max(120, Math.min(workspaceHost.width * 0.72, win.stageRailWidth - deltaX))
+                }
+                function onDragResizeFinished(currentW) {
+                    if (currentW < 210) {
+                        win.stageMode = "collapsed"
+                        win.stageRailWidth = DesignTokens.stageDefaultWidth
+                    } else if (currentW > Math.min(540, workspaceHost.width * 0.56)) {
+                        win.stageRailWidth = DesignTokens.stageDefaultWidth
+                        win.enterImmersive(focusStage.currentCoverItem())
+                    } else {
+                        win.stageRailWidth = Math.max(DesignTokens.stageMinWidth, Math.min(DesignTokens.stageMaxWidth, currentW))
+                    }
+                }
             }
         }
     }
@@ -681,10 +1029,19 @@ Window {
             id: eqLoader
             anchors.fill: parent
             active: win.eqOpen || win.eqKeepAlive
-            sourceComponent: EqDrawer {
-                controller: player
-                settingsObj: appSettings
-                onCloseRequested: win.eqOpen = false
+            onActiveChanged: {
+                if (active) {
+                    setSource(Qt.resolvedUrl("views/EqDrawer.qml"), {
+                        controller: player,
+                        settingsObj: appSettings
+                    })
+                } else {
+                    source = ""
+                }
+            }
+            Connections {
+                target: eqLoader.item
+                function onCloseRequested() { win.eqOpen = false }
             }
         }
     }
@@ -716,18 +1073,84 @@ Window {
         stageMode: win.effectiveStageMode
         stageTab: win.stageTab
         immersiveFactor: win.animImmersive
+        currentDownloadStatus: onlineMusic.currentTrackDownloadStatus
         hideCoverForHero: heroLayer.isConcealing("nowplaying-cover")
         onToggleQueue: win.toggleStageQueue()
         onToggleLyrics: win.toggleStageLyrics(playbackDock.coverAnchorItem())
         onCoverClicked: win.toggleImmersive(playbackDock.coverAnchorItem())
         onToggleEq: win.eqOpen = !win.eqOpen
         onOpenTrackInfo: win.inspectedTrackMap = player.currentTrackMap
+        onDownloadCurrentRequested: onlineMusic.downloadCurrentTrack()
         onToggleFavorite: win.toggleCurrentFavorite()
     }
 
     function toggleCurrentFavorite() {
-        if (player.trackId >= 0)
-            library.toggleFavorite(player.trackId, player.trackIsFavorite)
+        if (player.hasTrack) {
+            library.toggleTrackFavorite(player.currentTrackMap)
+        }
+    }
+
+    // Unified Command-Search Suggestions Popover (lazy-loaded on search focus)
+    Loader {
+        id: searchPopoverLoader
+        anchors.fill: parent
+        z: 36
+        active: titleBar.searchFocused && win.stageMode !== "immersive"
+        onActiveChanged: {
+            if (active) {
+                setSource(Qt.resolvedUrl("components/SearchSuggestionsPopover.qml"), {
+                    open: true,
+                    query: win.unifiedSearchText,
+                    onlineConfigured: onlineMusic.backendConfigured,
+                    playlistLinkId: win.detectedPlaylistId,
+                    localResults: win.quickLocalResults,
+                    anchorRect: titleBar.searchPillRectInWindow()
+                })
+            } else {
+                source = ""
+            }
+        }
+        Binding { target: searchPopoverLoader.item; property: "query"; value: win.unifiedSearchText; when: searchPopoverLoader.item !== null }
+        Binding { target: searchPopoverLoader.item; property: "onlineConfigured"; value: onlineMusic.backendConfigured; when: searchPopoverLoader.item !== null }
+        Binding { target: searchPopoverLoader.item; property: "playlistLinkId"; value: win.detectedPlaylistId; when: searchPopoverLoader.item !== null }
+        Binding { target: searchPopoverLoader.item; property: "localResults"; value: win.quickLocalResults; when: searchPopoverLoader.item !== null }
+        Binding { target: searchPopoverLoader.item; property: "anchorRect"; value: titleBar.searchPillRectInWindow(); when: searchPopoverLoader.item !== null }
+        Connections {
+            target: searchPopoverLoader.item
+            function onOpenPlaylistLinkRequested(rawInput) { win.submitUnifiedSearch(rawInput) }
+            function onSearchOnlineRequested(q) { win.submitUnifiedSearch(q) }
+            function onOpenOnlineSettingsRequested() {
+                titleBar.clearSearchFocus()
+                win.openOnlineSettings()
+            }
+            function onPlayLocalTrackRequested(trackId) {
+                library.playTrackById(trackId)
+                titleBar.clearSearchFocus()
+            }
+            function onOpenLocalAlbumRequested(album, albumArtist, coverHash, year) {
+                titleBar.clearSearchFocus()
+                win.openLocalTab("albums")
+                Qt.callLater(() => {
+                    if (localHubLoader.item) {
+                        localHubLoader.item.openAlbumDetail(album, albumArtist, coverHash, year)
+                    }
+                })
+            }
+            function onOpenLocalArtistRequested(artist) {
+                titleBar.clearSearchFocus()
+                win.openLocalTab("artists")
+                Qt.callLater(() => {
+                    if (localHubLoader.item) {
+                        localHubLoader.item.selectArtist(artist)
+                    }
+                })
+            }
+            function onFilterLocalLibraryRequested(q) {
+                library.searchQuery = q
+                titleBar.clearSearchFocus()
+                win.openLocalTab("tracks")
+            }
+        }
     }
 
     // Global Shared-Element Hero Transition Layer
@@ -748,11 +1171,22 @@ Window {
             id: trackInfoLoader
             anchors.fill: parent
             active: win.inspectedTrackMap !== null || win.trackInfoKeepAlive
-            sourceComponent: TrackInfoDialog {
-                open: win.inspectedTrackMap !== null
-                trackMap: win.inspectedTrackMap || win.cachedTrackMap
-                onCloseRequested: win.inspectedTrackMap = null
-                onClosed: {
+            onActiveChanged: {
+                if (active) {
+                    setSource(Qt.resolvedUrl("components/TrackInfoDialog.qml"), {
+                        open: win.inspectedTrackMap !== null,
+                        trackMap: win.inspectedTrackMap || win.cachedTrackMap
+                    })
+                } else {
+                    source = ""
+                }
+            }
+            Binding { target: trackInfoLoader.item; property: "open"; value: win.inspectedTrackMap !== null; when: trackInfoLoader.item !== null }
+            Binding { target: trackInfoLoader.item; property: "trackMap"; value: win.inspectedTrackMap || win.cachedTrackMap; when: trackInfoLoader.item !== null }
+            Connections {
+                target: trackInfoLoader.item
+                function onCloseRequested() { win.inspectedTrackMap = null }
+                function onClosed() {
                     if (win.inspectedTrackMap === null) win.trackInfoKeepAlive = false
                 }
             }
@@ -903,13 +1337,6 @@ Window {
                 }
             }
         }
-    }
-
-    // Lazy-created independent top-level Mini Floating Pill Window (0 RAM when inactive;
-    // created with null parent so hiding main window to tray never hides the mini player)
-    Component {
-        id: miniPlayerComponent
-        MiniPlayerWindow {}
     }
 
     // Global drag & drop overlay

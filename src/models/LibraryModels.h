@@ -37,7 +37,12 @@ public:
         IsCueRole,
         SampleRateRole,
         BitDepthRole,
-        CodecRole
+        CodecRole,
+        SourceRole,
+        RemoteIdRole,
+        CoverUrlRole,
+        IsOnlineRole,
+        TrackKeyRole
     };
 
     explicit TrackListModel(QObject* parent = nullptr) : QAbstractListModel(parent) {}
@@ -50,6 +55,7 @@ public:
     const QVector<TrackInfo>& tracks() const { return tracks_; }
     void setTracks(QVector<TrackInfo> tracks);
     void updateFavoriteForTrack(int64_t trackId, bool favorite);
+    void updateFavoriteForKey(const QString& trackKey, bool favorite);
 
     Q_INVOKABLE QVariantMap trackMapAt(int row) const;
 
@@ -126,8 +132,10 @@ class LibraryController : public QObject {
     Q_PROPERTY(QObject* albumsModel READ albumsModel CONSTANT)
     Q_PROPERTY(QObject* artistsModel READ artistsModel CONSTANT)
     Q_PROPERTY(QObject* detailTracksModel READ detailTracksModel CONSTANT)
+    Q_PROPERTY(QObject* downloadedTracksModel READ downloadedTracksModel CONSTANT)
 
     Q_PROPERTY(QVariantList playlists READ playlists NOTIFY playlistsChanged)
+    Q_PROPERTY(QVariantList pinnedPlaylists READ pinnedPlaylists NOTIFY pinnedPlaylistsChanged)
     Q_PROPERTY(QVariantList folderEntries READ folderEntries NOTIFY folderChanged)
     Q_PROPERTY(QString currentFolderPath READ currentFolderPath NOTIFY folderChanged)
     Q_PROPERTY(bool canGoUpFolder READ canGoUpFolder NOTIFY folderChanged)
@@ -140,6 +148,9 @@ class LibraryController : public QObject {
     Q_PROPERTY(int scanProgress READ scanProgress NOTIFY scanningChanged)
     Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanningChanged)
     Q_PROPERTY(int totalTrackCount READ totalTrackCount NOTIFY libraryUpdated)
+    Q_PROPERTY(QVariantList recentTracksSummary READ recentTracksSummary NOTIFY libraryUpdated)
+    Q_PROPERTY(QVariantList recentAlbumsSummary READ recentAlbumsSummary NOTIFY libraryUpdated)
+    Q_PROPERTY(bool hasRecentPlays READ hasRecentPlays NOTIFY libraryUpdated)
 
 public:
     LibraryController(LibraryDatabase* db,
@@ -149,12 +160,14 @@ public:
                       PlaybackController* player,
                       QObject* parent = nullptr);
 
-    QObject* tracksModel() { return &tracksModel_; }
-    QObject* albumsModel() { return &albumsModel_; }
-    QObject* artistsModel() { return &artistsModel_; }
+    QObject* tracksModel();
+    QObject* albumsModel();
+    QObject* artistsModel();
     QObject* detailTracksModel() { return &detailTracksModel_; }
+    QObject* downloadedTracksModel();
 
     QVariantList playlists() const { return playlists_; }
+    QVariantList pinnedPlaylists() const { return pinnedPlaylists_; }
     QVariantList folderEntries() const { return folderEntries_; }
     QString currentFolderPath() const { return currentFolderPath_; }
     bool canGoUpFolder() const { return !currentFolderPath_.isEmpty(); }
@@ -170,6 +183,9 @@ public:
     int scanProgress() const;
     int scanTotal() const;
     int totalTrackCount() const { return totalTrackCount_; }
+    QVariantList recentTracksSummary() const { return recentTracksSummary_; }
+    QVariantList recentAlbumsSummary() const { return recentAlbumsSummary_; }
+    bool hasRecentPlays() const { return hasRecentPlays_; }
 
     // View loaders
     Q_INVOKABLE void refreshAll();
@@ -185,35 +201,72 @@ public:
     Q_INVOKABLE void playFromDetailModel(int index);
     Q_INVOKABLE void enqueueFromTracksModel(int index);
     Q_INVOKABLE void playNextFromTracksModel(int index);
+    Q_INVOKABLE void playFromDownloadedModel(int index);
+    Q_INVOKABLE void playNextFromDownloadedModel(int index);
+    Q_INVOKABLE void enqueueFromDownloadedModel(int index);
+    Q_INVOKABLE QVariantMap quickSearchLocal(const QString& query,
+                                             int maxTracks = 5,
+                                             int maxAlbums = 3,
+                                             int maxArtists = 2) const;
+    Q_INVOKABLE void playTrackById(qint64 trackId);
 
-    // Favorites & Playlists & M3U8
+    // Favorites & Playlists & M3U8 (unified across local and online tracks)
     Q_INVOKABLE void toggleFavorite(qint64 trackId, bool currentFav);
+    Q_INVOKABLE bool toggleTrackFavorite(const QVariantMap& trackMap);
+    Q_INVOKABLE bool isTrackFavorite(const QString& source, const QString& remoteId) const;
     Q_INVOKABLE qint64 createPlaylist(const QString& name);
     Q_INVOKABLE void deletePlaylist(qint64 playlistId);
     Q_INVOKABLE void addTrackToPlaylist(qint64 playlistId, qint64 trackId);
+    Q_INVOKABLE void addTrackMapToPlaylist(qint64 playlistId, const QVariantMap& trackMap);
     Q_INVOKABLE void removeTrackFromPlaylist(qint64 playlistId, int position);
     Q_INVOKABLE void importM3uPlaylist(const QUrl& fileUrl);
     Q_INVOKABLE void exportM3uPlaylist(qint64 playlistId, const QUrl& dstFileUrl);
 
-    // Folder & Scan management
+    // Pinned online playlists
+    Q_INVOKABLE bool pinOnlinePlaylist(const QString& source,
+                                       const QString& remoteId,
+                                       const QString& name,
+                                       const QString& creator = {},
+                                       const QString& coverUrl = {},
+                                       int trackCount = 0);
+    Q_INVOKABLE bool unpinOnlinePlaylist(const QString& source, const QString& remoteId);
+    Q_INVOKABLE bool isOnlinePlaylistPinned(const QString& source, const QString& remoteId) const;
+
+    // Folder & Scan management & Memory release
     Q_INVOKABLE void addWatchedFolder(const QUrl& folderUrl);
     Q_INVOKABLE void removeWatchedFolder(const QString& folderPath);
     Q_INVOKABLE void rescanLibrary();
+    Q_INVOKABLE bool ingestLocalFile(const QString& audioFilePath);
+    Q_INVOKABLE bool ingestDownloadedTrack(const QString& audioFilePath,
+                                           const QString& onlineSource,
+                                           const QString& onlineRemoteId);
+    Q_INVOKABLE void releaseInactiveModels(const QString& activeSection);
+
+    bool findUpgradedLocalTrack(const QString& remoteId, TrackInfo& out) const;
 
     // Rich drag-and-drop URL expander (supports audio files, folders, .cue, .m3u/.m3u8)
     QVector<TrackInfo> expandDroppedUrls(const QList<QUrl>& urls);
 
 signals:
     void playlistsChanged();
+    void pinnedPlaylistsChanged();
+    void favoritesChanged();
     void folderChanged();
     void filterChanged();
     void scanningChanged();
     void libraryUpdated();
 
 private:
+    void ensureTracksLoaded();
+    void ensureAlbumsLoaded();
+    void ensureArtistsLoaded();
+    void ensureDownloadsLoaded();
     void reloadTracksForCurrentSection();
     void reloadPlaylists();
+    void reloadPinnedPlaylists();
     void reloadFolderBrowser();
+    void reloadDownloadedTracks();
+    void reloadHomeSummaries();
 
     LibraryDatabase* db_ = nullptr;
     LibraryScanner* scanner_ = nullptr;
@@ -225,12 +278,26 @@ private:
     AlbumListModel albumsModel_;
     ArtistListModel artistsModel_;
     TrackListModel detailTracksModel_;
+    TrackListModel downloadedTracksModel_;
 
     QVariantList playlists_;
+    QVariantList pinnedPlaylists_;
     QVariantList folderEntries_;
+    QVariantList recentTracksSummary_;
+    QVariantList recentAlbumsSummary_;
+    bool hasRecentPlays_ = false;
     QString currentFolderPath_;
     QString currentSection_ = QStringLiteral("tracks");
     qint64 activePlaylistId_ = -1;
+
+    bool tracksLoaded_ = false;
+    bool albumsLoaded_ = false;
+    bool artistsLoaded_ = false;
+    bool downloadsLoaded_ = false;
+    bool tracksDirty_ = true;
+    bool albumsDirty_ = true;
+    bool artistsDirty_ = true;
+    bool downloadsDirty_ = true;
 
     QString searchQuery_;
     QString sortBy_ = QStringLiteral("artist");

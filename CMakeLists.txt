@@ -111,8 +111,20 @@ set(VIRELA_CORE_SOURCES
     src/ui/EqCurveItem.cpp
     src/ui/FluidAuroraItem.h
     src/ui/FluidAuroraItem.cpp
+    src/ui/IconImageProvider.h
+    src/ui/IconImageProvider.cpp
     src/platform/PlatformBridge.h
     src/platform/PlatformBridge.cpp
+    src/online/AudioMetadataWriter.h
+    src/online/AudioMetadataWriter.cpp
+    src/online/LocalBackendManager.h
+    src/online/LocalBackendManager.cpp
+    src/online/StreamCacheManager.h
+    src/online/StreamCacheManager.cpp
+    src/online/OnlineMusicService.h
+    src/online/OnlineMusicService.cpp
+    src/online/OnlineMusicController.h
+    src/online/OnlineMusicController.cpp
 )
 
 if(WIN32)
@@ -133,6 +145,7 @@ target_include_directories(virela_core PUBLIC src)
 target_link_libraries(virela_core PUBLIC
     Qt6::Core
     Qt6::Gui
+    Qt6::Network
     Qt6::Qml
     Qt6::Quick
     FFmpeg::avformat
@@ -205,17 +218,23 @@ qt_add_qml_module(virela
         qml/components/VirelaComboBox.qml
         qml/components/NowPlayingBars.qml
         qml/components/TitleBar.qml
+        qml/components/SearchSuggestionsPopover.qml
+        qml/components/AppDialogs.qml
         qml/components/Sidebar.qml
         qml/components/PlaybackBar.qml
         qml/components/QueueDrawer.qml
         qml/components/TrackInfoDialog.qml
         qml/views/TracksView.qml
+        qml/views/AlbumsView.qml
         qml/views/ArtistsView.qml
         qml/views/FoldersView.qml
+        qml/views/LocalMusicHubView.qml
+        qml/views/DownloadsView.qml
         qml/views/NowPlayingOverlay.qml
         qml/views/FocusStage.qml
         qml/views/EqDrawer.qml
         qml/views/SettingsView.qml
+        qml/views/OnlineMusicView.qml
         qml/windows/MiniPlayerWindow.qml
 )
 
@@ -228,7 +247,6 @@ qt_add_translations(virela
 
 target_link_libraries(virela PRIVATE
     virela_core
-    Qt6::Network
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::QuickDialogs2
@@ -299,4 +317,22 @@ if(VIRELA_BUILD_TESTS)
     endif()
     virela_add_test(test_library_and_parsers tests/test_library_and_parsers.cpp)
     virela_add_test(test_dsp_and_fft tests/test_dsp_and_fft.cpp)
+    virela_add_test(test_online_music tests/test_online_music.cpp)
+    if(FFMPEG_EXECUTABLE)
+        target_compile_definitions(test_online_music PRIVATE
+            VIRELA_FFMPEG_EXECUTABLE="${FFMPEG_EXECUTABLE}"
+        )
+    endif()
+    if(FFMPEG_BIN_DIR)
+        target_compile_definitions(test_online_music PRIVATE
+            VIRELA_FFMPEG_BIN_DIR="${FFMPEG_BIN_DIR}"
+        )
+    endif()
+    if(WIN32 AND FFMPEG_RUNTIME_DLLS)
+        foreach(_dll ${FFMPEG_RUNTIME_DLLS})
+            add_custom_command(TARGET test_online_music POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_dll}" "$<TARGET_FILE_DIR:test_online_music>"
+            )
+        endforeach()
+    endif()
 endif()
